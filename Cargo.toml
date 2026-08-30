@@ -2,6 +2,9 @@
 name = "codeparsers"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "Extraction de scopes multi-langages par tree-sitter : ce qu'on comprend, et ce qu'on n'a pas su comprendre — dit plutôt que jeté."
+repository = "https://github.com/L-Defraiteur/codeparsers"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
