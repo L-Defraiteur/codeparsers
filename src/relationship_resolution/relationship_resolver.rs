@@ -89,6 +89,9 @@ fn scope_type_str(t: &ScopeInfoType) -> &'static str {
         ScopeInfoType::Lambda => "lambda",
         ScopeInfoType::Constant => "constant",
         ScopeInfoType::Block => "block",
+        // Absent de `VALUE_TYPES` à dessein : un passage de texte brut ne
+        // définit aucun type, donc rien ne doit s'y résoudre.
+        ScopeInfoType::TexteBrut => "texte_brut",
     }
 }
 

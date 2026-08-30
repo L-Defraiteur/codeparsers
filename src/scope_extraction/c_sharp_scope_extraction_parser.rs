@@ -165,6 +165,9 @@ impl CSharpScopeExtractionParser {
             ast_valid,
             ast_issues,
             content_hash: None,
+            // remplis par `finalize`
+            octets: 0,
+            aucun_parseur: false,
         }
     }
 

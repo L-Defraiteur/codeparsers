@@ -5,7 +5,7 @@ use crate::scope_extraction::cpp_scope_extraction_parser::CppScopeExtractionPars
 use crate::scope_extraction::go_scope_extraction_parser::GoScopeExtractionParser;
 use crate::scope_extraction::python_scope_extraction_parser::PythonScopeExtractionParser;
 use crate::scope_extraction::rust_scope_extraction_parser::RustScopeExtractionParser;
-use crate::scope_extraction::types::ScopeFileAnalysis;
+use crate::scope_extraction::types::{ScopeFileAnalysis, ScopeInfo, ScopeInfoType};
 
 use std::cell::RefCell;
 
@@ -66,11 +66,96 @@ pub fn parse_file(task: &ParseFileTask) -> ScopeFileAnalysis {
     analysis
 }
 
+/// **Un fichier sans grammaire, rendu entier plutôt qu'ignoré.**
+///
+/// Ni un échec ni une extraction : un seul scope [`ScopeInfoType::TexteBrut`]
+/// couvrant tout le fichier, `aucun_parseur` à vrai, et `ast_valid` à vrai —
+/// on n'a pas échoué à parser, on n'a pas essayé, et la différence est réelle.
+///
+/// codeparsers ne décide pas si ce fichier mérite d'entrer dans un index : il
+/// rend les faits — les octets, le genre — et laisse la politique au
+/// consommateur. Un parseur qui saute un fichier en silence ment par omission,
+/// et c'est le défaut que ce dépôt passe ses journées à débusquer.
+pub fn analyser_texte_brut(file_path: &str, content: &str) -> ScopeFileAnalysis {
+    let lignes = content.lines().count().max(1);
+    let nom = std::path::Path::new(file_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| file_path.to_string());
+    let scope = ScopeInfo {
+        // Un scope sans nom ne se cite pas : celui-ci porte son fichier et son
+        // étendue, comme les passages du cahier des charges.
+        name: format!("{nom}:1-{lignes}"),
+        r#type: ScopeInfoType::TexteBrut,
+        scope_start_line: 1,
+        scope_end_line: lignes,
+        scope_start_byte: 0,
+        scope_end_byte: content.len(),
+        signature_start_line: 1,
+        signature_end_line: 1,
+        body_start_line: None,
+        body_end_line: None,
+        file_path: file_path.to_string(),
+        // Pas de signature. Il n'y en a pas, et en inventer une serait mentir.
+        signature: String::new(),
+        parameters: Vec::new(),
+        return_type: None,
+        return_type_info: None,
+        modifiers: Vec::new(),
+        generic_parameters: None,
+        heritage_clauses: None,
+        decorator_details: None,
+        content: content.to_string(),
+        content_dedented: content.to_string(),
+        children: Vec::new(),
+        members: None,
+        enum_members: None,
+        variables: None,
+        dependencies: Vec::new(),
+        exports: Vec::new(),
+        imports: Vec::new(),
+        import_references: Vec::new(),
+        identifier_references: Vec::new(),
+        ast_valid: true,
+        ast_issues: Vec::new(),
+        ast_notes: Vec::new(),
+        complexity: 1,
+        lines_of_code: lignes,
+        parent: None,
+        depth: 0,
+        docstring: None,
+        decorators: None,
+        value: None,
+    };
+    let mut analyse = ScopeFileAnalysis {
+        file_path: file_path.to_string(),
+        scopes: vec![scope],
+        total_lines: lignes,
+        total_scopes: 1,
+        ast_valid: true,
+        aucun_parseur: true,
+        ..Default::default()
+    };
+    finalize(&mut analyse, content);
+    // **`finalize` dérive les octets des lignes, et une fin de ligne exclut le
+    // `\n`.** Le dernier saut de ligne d'un fichier n'est donc jamais couvert —
+    // un octet perdu par fichier, et c'est une part des trous que
+    // `examples/couverture.rs` mesure. Ici on connaît la vérité, on la pose.
+    //
+    // Le défaut général appartient au chantier de couverture : tant que les
+    // offsets se dérivent des lignes, l'invariant « l'union des scopes couvre
+    // le fichier » sera faux d'un octet partout.
+    analyse.scopes[0].scope_start_byte = 0;
+    analyse.scopes[0].scope_end_byte = content.len();
+    analyse
+}
+
 /// Ce que les parseurs de langage ne remplissent pas et que tout consommateur
-/// attend : le hash de contenu (blake3, le même que les UUID) et les offsets
-/// d'octets de chaque scope, dérivés de ses lignes.
+/// attend : le hash de contenu (blake3, le même que les UUID), les octets du
+/// fichier, et les offsets d'octets de chaque scope, dérivés de ses lignes.
 pub fn finalize(analysis: &mut ScopeFileAnalysis, content: &str) {
     analysis.content_hash = Some(crate::utils::hash::content_hash(content));
+    analysis.octets = content.len();
     // line_starts[i] = offset du premier octet de la ligne i+1 (1-based)
     let mut line_starts: Vec<usize> = vec![0];
     for (i, b) in content.bytes().enumerate() {

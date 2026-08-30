@@ -166,6 +166,18 @@ pub enum ScopeInfoType {
     Lambda,
     Constant,
     Block,
+    /// **Aucun parseur n'a été tenté.** Ni un échec, ni un passage qu'on n'a
+    /// pas su rattacher : un fichier dont l'extension n'a pas de grammaire —
+    /// un `.md`, un `.toml`, un `.sh` — rend **un** scope de ce genre,
+    /// couvrant tout le fichier.
+    ///
+    /// La distinction avec les deux genres du cahier des charges est celle
+    /// que ce dépôt tient partout ailleurs : « on n'a pas essayé » n'est pas
+    /// « on a essayé et ça n'a rien donné ». Un agent qui filtre
+    /// `scope_type != 'texte_brut'` cherche du code ; celui qui le garde
+    /// cherche ce que quelqu'un a écrit.
+    #[serde(rename = "texte_brut")]
+    TexteBrut,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -232,4 +244,16 @@ pub struct ScopeFileAnalysis {
     pub ast_valid: bool,
     pub ast_issues: Vec<String>,
     pub content_hash: Option<String>,
+    /// Octets du fichier. Rempli par `parallel::parser_worker::finalize`.
+    ///
+    /// Un **fait**, pas une politique : c'est au consommateur de décider si un
+    /// fichier est trop gros pour son index, et de le dire. codeparsers rend
+    /// toujours une analyse — il ne saute rien en silence.
+    #[serde(default)]
+    pub octets: usize,
+    /// Vrai quand aucune grammaire n'a été tentée : le fichier est rendu en un
+    /// seul scope [`ScopeInfoType::TexteBrut`]. À ne pas confondre avec
+    /// `ast_valid`, qui parle d'une tentative qui a eu lieu.
+    #[serde(default)]
+    pub aucun_parseur: bool,
 }
