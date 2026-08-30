@@ -40,7 +40,19 @@ lazy_static::lazy_static! {
         m.insert(".rs", SupportedLanguage::Rust);
         m.insert(".go", SupportedLanguage::Go);
         m.insert(".c", SupportedLanguage::C);
-        m.insert(".h", SupportedLanguage::C);
+        // **`.h` part à la grammaire C++, pas à la C.**
+        //
+        // L'extension ne dit pas le langage : un en-tête C++ s'appelle `.h`
+        // aussi souvent que `.hpp`. Mesuré le 30 août 2026 par
+        // `examples/couverture.rs`, sur 1 541 en-têtes du dépôt : avec la
+        // grammaire C, 1 470 sont en erreur et 25 % de leurs octets tombent
+        // sous un nœud `ERROR` ; avec la C++, 577 et 9 %, et les scopes
+        // extraits passent de 8 181 à 22 192.
+        //
+        // Le C n'y perd presque rien — il est un sous-ensemble du C++ à peu de
+        // chose près — pendant que `namespace`, `template` et `::` cessaient
+        // d'avaler le fichier entier.
+        m.insert(".h", SupportedLanguage::Cpp);
         m.insert(".cpp", SupportedLanguage::Cpp);
         m.insert(".cc", SupportedLanguage::Cpp);
         m.insert(".cxx", SupportedLanguage::Cpp);
