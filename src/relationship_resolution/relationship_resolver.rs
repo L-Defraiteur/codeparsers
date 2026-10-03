@@ -729,8 +729,18 @@ impl RelationshipResolver {
         let relative_path = self.get_relative_path(file_path);
         let candidates = self.scope_mapping.get(parent_name)?;
 
-        // Find parent in same file
-        let parent_entry = candidates.iter().find(|c| c.file == relative_path)?;
+        // Le parent est, dans le même fichier, l'homonyme qui **contient**
+        // l'enfant — le plus étroit —, pas le premier venu : `struct Sq;` puis
+        // `impl Shape for Sq { fn area… }` font deux `Sq`, et c'est l'impl qui
+        // contient `area` (3 octobre 2026). Repli sur le premier quand aucun
+        // ne le contient.
+        let meme_fichier: Vec<&ScopeMappingEntry> = candidates.iter().filter(|c| c.file == relative_path).collect();
+        let parent_entry = meme_fichier
+            .iter()
+            .filter(|c| c.start_line <= scope.scope_start_line && scope.scope_end_line <= c.end_line)
+            .min_by_key(|c| c.end_line - c.start_line)
+            .or_else(|| meme_fichier.first())
+            .copied()?;
         let child_uuid = self.generate_uuid(scope, &relative_path);
 
         Some(ResolvedRelationship {

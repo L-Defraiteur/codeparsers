@@ -73,3 +73,35 @@ fn une_fonction_de_module_porte_ses_propres_references() {
     let noms: Vec<&str> = adds.identifier_references.iter().map(|r| r.identifier.as_str()).collect();
     assert!(noms.contains(&"top") && noms.contains(&"helper"), "références de adds : {noms:?}");
 }
+
+#[test]
+fn le_parent_d_une_methode_est_son_impl_pas_la_struct_homonyme() {
+    // `struct Sq;` puis `impl Shape for Sq { fn area… }` : deux scopes `Sq`
+    // dans le fichier ; le parent de `area` est celui qui le contient
+    // (l'impl), pas le premier homonyme (la struct). Sans cela, l'arête
+    // `HAS_PARENT` de toute méthode Rust visait la struct, et l'impl — qui
+    // porte l'`IMPLEMENTS` — n'avait plus d'enfants.
+    let src = "pub trait Shape {\n    fn area(&self) -> f64;\n}\n\npub struct Sq;\n\nimpl Shape for Sq {\n    fn area(&self) -> f64 {\n        1.0\n    }\n}\n";
+    let mut contenus = HashMap::new();
+    contenus.insert("/virtual/sq.rs".to_string(), src.to_string());
+    let res = ProjectParser::new(ProjectParserOptions { verbose: false })
+        .parse_project(ParseProjectOptions {
+            root: "/virtual".to_string(),
+            files: vec!["/virtual/sq.rs".into()],
+            content_map: Some(contenus),
+            resolve_relationships: Some(true),
+            resolver_options: None,
+        })
+        .relationships
+        .unwrap();
+    let parents: Vec<(usize, usize)> = res
+        .relationships
+        .iter()
+        .filter(|r| r.r#type == codeparsers::relationship_resolution::types::RelationshipType::PARENTOF && r.to_name == "area" && r.from_name == "Sq")
+        .map(|r| {
+            let e = &res.uuid_mapping[&r.from_uuid];
+            (e.start_line, e.end_line)
+        })
+        .collect();
+    assert_eq!(parents, vec![(7, 11)], "le parent de area est l'impl (lignes 7-11), pas la struct (ligne 5)");
+}
