@@ -180,7 +180,16 @@ impl RustScopeExtractionParser {
             if let Some(decl_list) = node.children(&mut cursor).find(|c| c.kind() == "declaration_list") {
                 let mut cursor2 = decl_list.walk();
                 for child in decl_list.children(&mut cursor2) {
-                    self.extract_scopes(child, scopes, content, depth + 1, Some(scope_name.clone()), file_imports, file_path);
+                    // Une fonction du module est une fonction libre dont le
+                    // module est le parent. La branche générique plus bas ne
+                    // prend une fonction que sans parent (pour écarter celles
+                    // d'un corps) : elle écartait aussi celles-ci, dont tous
+                    // les `#[test]` d'un `mod tests` (3 octobre 2026).
+                    if child.kind() == "function_item" {
+                        self.extract_standalone_function(child, scopes, content, depth + 1, Some(scope_name.clone()), file_imports, file_path);
+                    } else {
+                        self.extract_scopes(child, scopes, content, depth + 1, Some(scope_name.clone()), file_imports, file_path);
+                    }
                 }
             }
             return;
@@ -257,18 +266,7 @@ impl RustScopeExtractionParser {
 
         // Handle standalone functions
         if node.kind() == "function_item" && parent.is_none() {
-            let mut scope = self.extract_rust_function(node, content, depth, parent, file_imports);
-            scope.file_path = file_path.to_string();
-            let func_name = scope.name.clone();
-            scopes.push(scope);
-
-            // Recurse into body for nested scopes (closures, etc.)
-            if let Some(body) = node.child_by_field_name("body") {
-                let mut body_cursor = body.walk();
-                for body_child in body.children(&mut body_cursor) {
-                    self.extract_scopes(body_child, scopes, content, depth + 1, Some(func_name.clone()), file_imports, file_path);
-                }
-            }
+            self.extract_standalone_function(node, scopes, content, depth, parent, file_imports, file_path);
             return;
         }
 
@@ -284,6 +282,23 @@ impl RustScopeExtractionParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             self.extract_scopes(child, scopes, content, depth, parent.clone(), file_imports, file_path);
+        }
+    }
+
+    /// Une fonction libre — du fichier ou d'un module — et les scopes de son
+    /// corps (fermetures).
+    fn extract_standalone_function(&self, node: SyntaxNode, scopes: &mut Vec<ScopeInfo>, content: &str, depth: usize, parent: Option<String>, file_imports: &[ImportReference], file_path: &str) {
+        let mut scope = self.extract_rust_function(node, content, depth, parent, file_imports);
+        scope.file_path = file_path.to_string();
+        let func_name = scope.name.clone();
+        scopes.push(scope);
+
+        // Recurse into body for nested scopes (closures, etc.)
+        if let Some(body) = node.child_by_field_name("body") {
+            let mut body_cursor = body.walk();
+            for body_child in body.children(&mut body_cursor) {
+                self.extract_scopes(body_child, scopes, content, depth + 1, Some(func_name.clone()), file_imports, file_path);
+            }
         }
     }
 
