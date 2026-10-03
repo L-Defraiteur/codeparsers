@@ -922,7 +922,7 @@ impl CScopeExtractionParser {
                             identifier,
                             line: node.start_position().row + 1,
                             column: Some(node.start_position().column),
-                            context: base.get_line_from_content(content, node.start_position().row + 1),
+                            context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, node.start_byte()),
                             kind: Some(IdentifierReferenceKind::Unknown),
                             qualifier: None,
                             source: None,

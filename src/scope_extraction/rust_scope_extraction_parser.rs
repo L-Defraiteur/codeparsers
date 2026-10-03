@@ -1324,7 +1324,7 @@ fn visit_rust_type_refs(
                     identifier,
                     line: current.start_position().row + 1,
                     column: Some(current.start_position().column),
-                    context: parser.base.get_line_from_content(content, current.start_position().row + 1),
+                    context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, current.start_byte()),
                     kind: Some(IdentifierReferenceKind::Unknown),
                     ..Default::default()
                 });
@@ -1356,7 +1356,7 @@ fn visit_rust_type_refs(
                         identifier,
                         line: last_id.start_position().row + 1,
                         column: Some(last_id.start_position().column),
-                        context: parser.base.get_line_from_content(content, last_id.start_position().row + 1),
+                        context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, last_id.start_byte()),
                         kind: Some(IdentifierReferenceKind::Unknown),
                         ..Default::default()
                     });

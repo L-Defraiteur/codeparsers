@@ -2281,6 +2281,7 @@ impl BaseScopeExtractionParser {
                 {
                     let row = name_node.start_position().row;
                     let col = name_node.start_position().column;
+                    let octet = name_node.start_byte();
                     let key = format!("{}:{}:{}:jsx", identifier, row, col);
                     references.entry(key).or_insert_with(|| IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Call),
@@ -2290,7 +2291,7 @@ impl BaseScopeExtractionParser {
                         identifier,
                         line: row + 1,
                         column: Some(col),
-                        context: self.get_line_from_content(content, row + 1),
+                        context: line_at_byte(content, octet),
                         qualifier: None,
                         kind: None,
                         source: None,
@@ -2363,6 +2364,7 @@ impl BaseScopeExtractionParser {
 
                 let row = current.start_position().row;
                 let col = current.start_position().column;
+                let octet = current.start_byte();
                 let q_str = qualifier.as_deref().unwrap_or("root");
                 let key = format!("{}:{}:{}:{}", identifier, row, col, q_str);
                 references.entry(key).or_insert_with(|| IdentifierReference {
@@ -2373,7 +2375,7 @@ impl BaseScopeExtractionParser {
                     identifier,
                     line: row + 1,
                     column: Some(col),
-                    context: self.get_line_from_content(content, row + 1),
+                    context: line_at_byte(content, octet),
                     qualifier,
                     kind: None,
                     source: None,
@@ -2642,6 +2644,8 @@ impl BaseScopeExtractionParser {
 
     /// Get a specific line from content
 
+    /// Lit la ligne `line_number` en parcourant le texte depuis le début :
+    /// O(taille). Pour la ligne d'un nœud, [`line_at_byte`].
     pub fn get_line_from_content(&self, content: &str, line_number: usize) -> Option<String> {
         content.split('\n')
             .nth(line_number.wrapping_sub(1))
@@ -2734,6 +2738,15 @@ impl BaseScopeExtractionParser {
     /// (e.g., due to AST traversal limitations or edge cases).
 
     pub fn ensure_import_references_tracked(&self, scope: &mut ScopeInfo, file_imports: &[ImportReference], alias_map: &HashMap<String, ImportReference>) {
+        // Les noms déjà suivis, et le code sans commentaires ni chaînes : une
+        // fois par scope, pas une fois par import (un `impl` de mille lignes
+        // et cinquante `use` recopiaient le corps cinquante fois).
+        let mut suivis: std::collections::HashSet<String> = scope
+            .identifier_references
+            .iter()
+            .flat_map(|r| std::iter::once(r.identifier.clone()).chain(r.qualifier.clone()))
+            .collect();
+        let mut code_du_scope: Option<String> = None;
         for imp in file_imports {
             let symbol_name = imp.alias.as_deref().unwrap_or(&imp.imported);
 
@@ -2743,19 +2756,16 @@ impl BaseScopeExtractionParser {
             }
 
             // Check if this symbol is already tracked
-            let already_tracked = scope.identifier_references.iter().any(|r| {
-                r.identifier == symbol_name || r.qualifier.as_deref() == Some(symbol_name)
-            });
-            if already_tracked {
+            if suivis.contains(symbol_name) {
                 continue;
             }
 
             // Check if symbol appears in scope content as a whole word — hors
             // des commentaires et des chaînes, qui ne l'utilisent pas.
-            let code = without_comments_and_strings(&scope.content);
+            let code: &str = code_du_scope.get_or_insert_with(|| without_comments_and_strings(&scope.content));
             let pattern = format!(r"\b{}\b", regex::escape(symbol_name));
             if let Ok(re) = regex::Regex::new(&pattern) {
-                if let Some(m) = re.find(&code) {
+                if let Some(m) = re.find(code) {
                     let before_match = &code[..m.start()];
                     let line_offset = before_match.matches('\n').count();
                     let col = m.start() - before_match.rfind('\n').map_or(0, |i| i + 1);
@@ -2775,6 +2785,7 @@ impl BaseScopeExtractionParser {
                         target_scope: None,
                         is_local_import: None,
                     });
+                    suivis.insert(symbol_name.to_string());
                 }
             }
         }
@@ -3042,7 +3053,7 @@ impl BaseScopeExtractionParser {
         if start_row == 0 {
             return None;
         }
-        let lines: Vec<&str> = content.split('\n').collect();
+        let lines = LignesAuDessus::new(content, node, 40);
         let mut collected: Vec<String> = Vec::new();
         let min_row = start_row.saturating_sub(40);
         for i in (min_row..start_row).rev() {
@@ -3085,7 +3096,7 @@ impl BaseScopeExtractionParser {
         if start_row == 0 {
             return None;
         }
-        let lines: Vec<&str> = content.split('\n').collect();
+        let lines = LignesAuDessus::new(content, node, 256);
 
         // La ligne juste au-dessus doit fermer un bloc. Les attributs et une
         // ligne vide ne sont pas tolérés ici : un bloc Doxygen touche ce qu'il
@@ -3159,7 +3170,7 @@ impl BaseScopeExtractionParser {
         }
         // Fallback: look at previous lines for JSDoc
         let start_row = node.start_position().row;
-        let lines: Vec<&str> = content.split('\n').collect();
+        let lines = LignesAuDessus::new(content, node, 20);
         let mut jsdoc_lines: Vec<String> = Vec::new();
         let mut in_jsdoc = false;
         let min_row = if start_row > 20 { start_row - 20 } else { 0 };
@@ -4397,4 +4408,60 @@ fn without_comments_and_strings(texte: &str) -> String {
         }
     }
     out
+}
+
+/// **La ligne qui contient l'octet `byte`**, sans espaces autour — ce que
+/// `content.split('\n').nth(ligne)` rendait, en O(longueur de la ligne) au
+/// lieu de O(position dans le fichier). Appelée pour chaque référence, la
+/// version qui relisait le fichier depuis le début rendait l'analyse
+/// quadratique (roaring.c, 26 000 lignes : 10 s, dont 0,2 pour tree-sitter).
+pub fn line_at_byte(content: &str, byte: usize) -> Option<String> {
+    let octets = content.as_bytes();
+    if byte > octets.len() {
+        return None;
+    }
+    let debut = octets[..byte].iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+    let fin = octets[byte..].iter().position(|&b| b == b'\n').map_or(octets.len(), |i| byte + i);
+    content.get(debut..fin).map(|l| l.trim().to_string())
+}
+
+/// **Les lignes au-dessus d'un nœud**, lues à rebours depuis son octet :
+/// une recherche de commentaire de doc n'en regarde que quelques dizaines,
+/// et découper le fichier entier pour chaque scope rendait l'analyse
+/// quadratique. `get(i)` rend la ligne `i` du fichier (0-based) comme
+/// `content.split('\n').nth(i)` ; hors de la fenêtre, elle est relue dans le
+/// fichier — exact, et rare.
+pub struct LignesAuDessus<'a> {
+    content: &'a str,
+    /// Numéro de ligne de `lignes[0]`.
+    base: usize,
+    lignes: Vec<&'a str>,
+}
+
+impl<'a> LignesAuDessus<'a> {
+    pub fn new(content: &'a str, node: SyntaxNode, fenetre: usize) -> Self {
+        let row = node.start_position().row;
+        let octets = content.as_bytes();
+        let octet = node.start_byte().min(octets.len());
+        // Début de la ligne du nœud, puis les `fenetre` lignes au-dessus.
+        let mut fin = octets[..octet].iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+        let mut lignes: Vec<&'a str> = Vec::new();
+        while lignes.len() < fenetre && fin > 0 {
+            let fin_ligne = fin - 1; // le '\n' qui termine la ligne au-dessus
+            let debut = octets[..fin_ligne].iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+            lignes.push(content.get(debut..fin_ligne).unwrap_or(""));
+            fin = debut;
+        }
+        lignes.reverse();
+        let base = row - lignes.len();
+        Self { content, base, lignes }
+    }
+
+    pub fn get(&self, i: usize) -> Option<&'a str> {
+        if i >= self.base {
+            self.lignes.get(i - self.base).copied().or_else(|| self.content.split('\n').nth(i))
+        } else {
+            self.content.split('\n').nth(i)
+        }
+    }
 }

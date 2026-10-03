@@ -1143,7 +1143,7 @@ impl PythonScopeExtractionParser {
                         identifier,
                         line: node.start_position().row + 1,
                         column: Some(node.start_position().column),
-                        context: self.get_line_from_content(content, node.start_position().row + 1),
+                        context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, node.start_byte()),
                         qualifier: None,
                         ..Default::default()
                     });
@@ -1178,7 +1178,7 @@ impl PythonScopeExtractionParser {
                         identifier: name,
                         line: function_node.start_position().row + 1,
                         column: Some(function_node.start_position().column),
-                        context: self.get_line_from_content(content, function_node.start_position().row + 1),
+                        context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, function_node.start_byte()),
                         qualifier: None,
                         ..Default::default()
                     });
@@ -1224,7 +1224,7 @@ impl PythonScopeExtractionParser {
                         identifier: attribute,
                         line: attr_node.start_position().row + 1,
                         column: Some(attr_node.start_position().column),
-                        context: self.get_line_from_content(content, attr_node.start_position().row + 1),
+                        context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, attr_node.start_byte()),
                         qualifier,
                         ..Default::default()
                     });

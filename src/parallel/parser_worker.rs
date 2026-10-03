@@ -181,6 +181,26 @@ pub fn finalize(analysis: &mut ScopeFileAnalysis, content: &str) {
     let chemin = analysis.file_path.clone();
     crate::scope_extraction::test_marks::mark_tests(&mut analysis.scopes, content, &chemin);
     attach_import_origins(analysis);
+    ordre_fixe(analysis);
+}
+
+/// **Une sortie qui ne dépend pas de l'exécution.** Des `HashSet` et
+/// `HashMap` remplissent les références et les imports ; leur ordre change
+/// d'un fil à l'autre (chaque fil tire ses propres clés de hachage) : le
+/// même fichier rendait jusqu'à 28 ordres différents sur 64 analyses en
+/// parallèle, et un consommateur qui prend le premier site d'un usage
+/// changeait de ligne d'une indexation à l'autre. Triés ici, une fois.
+fn ordre_fixe(analysis: &mut ScopeFileAnalysis) {
+    for scope in &mut analysis.scopes {
+        scope.identifier_references.sort_by(|a, b| {
+            (a.line, a.column, &a.identifier, &a.qualifier, &a.context).cmp(&(b.line, b.column, &b.identifier, &b.qualifier, &b.context))
+        });
+        scope.import_references.sort_by(|a, b| (a.line, &a.source, &a.imported, &a.alias).cmp(&(b.line, &b.source, &b.imported, &b.alias)));
+    }
+    analysis.import_references.sort_by(|a, b| (a.line, &a.source, &a.imported, &a.alias).cmp(&(b.line, &b.source, &b.imported, &b.alias)));
+    analysis.imports.sort();
+    analysis.dependencies.sort();
+    analysis.exports.sort();
 }
 
 /// **L'import de chaque référence** : le nom visible (l'alias, sinon le nom
