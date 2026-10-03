@@ -305,6 +305,7 @@ impl PythonScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         ScopeInfo {
+            test: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Class, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -377,6 +378,7 @@ impl PythonScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         ScopeInfo {
+            test: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Function, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -451,6 +453,7 @@ impl PythonScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         Some(ScopeInfo {
+            test: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Lambda, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -524,6 +527,7 @@ impl PythonScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         Some(ScopeInfo {
+            test: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: scope_type, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -591,6 +595,7 @@ impl PythonScopeExtractionParser {
         };
 
         ScopeInfo {
+            test: None,
             name, r#type: ScopeInfoType::Lambda,
             scope_start_line: start_line, signature_start_line: start_line,
             signature_end_line: start_line,

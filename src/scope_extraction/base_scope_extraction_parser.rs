@@ -573,6 +573,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            test: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Class, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -638,6 +639,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            test: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Interface, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -704,6 +706,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            test: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Function, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -770,6 +773,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            test: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Method, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -831,6 +835,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            test: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Enum, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -890,6 +895,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            test: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::TypeAlias, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -949,6 +955,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            test: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Namespace, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -1028,6 +1035,7 @@ impl BaseScopeExtractionParser {
             let docstring = self.extract_js_doc(node, content);
 
             scopes.push(ScopeInfo {
+                test: None,
                 scope_start_byte: 0,
                 scope_end_byte: 0,
                 name, r#type: ScopeInfoType::Function, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -1118,6 +1126,7 @@ impl BaseScopeExtractionParser {
             let value = value_node.map(|vn| self.get_node_text(Some(vn), content));
 
             scopes.push(ScopeInfo {
+                test: None,
                 scope_start_byte: 0,
                 scope_end_byte: 0,
                 name, r#type: ScopeInfoType::Variable, scope_start_line: start_line, signature_start_line: start_line, signature_end_line: end_line, body_start_line: None, body_end_line: None, scope_end_line: end_line,
@@ -3203,6 +3212,7 @@ impl BaseScopeExtractionParser {
         };
 
         ScopeInfo {
+            test: None,
             name,
             r#type: ScopeInfoType::Module,
             scope_start_line: start_line,
@@ -3327,6 +3337,7 @@ impl BaseScopeExtractionParser {
         };
 
         ScopeInfo {
+            test: None,
             name,
             r#type: ScopeInfoType::Block,
             scope_start_line: start_line,
@@ -3600,6 +3611,7 @@ impl BaseScopeExtractionParser {
         };
 
         ScopeInfo {
+            test: None,
             name,
             r#type: ScopeInfoType::Block,
             scope_start_line: start_line,
@@ -3689,6 +3701,7 @@ impl BaseScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         ScopeInfo {
+            test: None,
             name,
             r#type: ScopeInfoType::Method,
             scope_start_line: start_line,
@@ -3769,6 +3782,7 @@ impl BaseScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         ScopeInfo {
+            test: None,
             name,
             r#type: ScopeInfoType::Lambda,
             scope_start_line: start_line,
@@ -4056,6 +4070,7 @@ impl BaseScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         ScopeInfo {
+            test: None,
             name,
             r#type: ScopeInfoType::Variable,
             scope_start_line: start_line,

@@ -83,6 +83,7 @@ pub fn analyser_texte_brut(file_path: &str, content: &str) -> ScopeFileAnalysis 
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| file_path.to_string());
     let scope = ScopeInfo {
+        test: None,
         // Un scope sans nom ne se cite pas : celui-ci porte son fichier et son
         // étendue, comme les passages du cahier des charges.
         name: format!("{nom}:1-{lignes}"),
@@ -152,7 +153,8 @@ pub fn analyser_texte_brut(file_path: &str, content: &str) -> ScopeFileAnalysis 
 
 /// Ce que les parseurs de langage ne remplissent pas et que tout consommateur
 /// attend : le hash de contenu (blake3, le même que les UUID), les octets du
-/// fichier, et les offsets d'octets de chaque scope, dérivés de ses lignes.
+/// fichier, les offsets d'octets de chaque scope, dérivés de ses lignes, et
+/// la marque de test de chaque scope.
 pub fn finalize(analysis: &mut ScopeFileAnalysis, content: &str) {
     analysis.content_hash = Some(crate::utils::hash::content_hash(content));
     analysis.octets = content.len();
@@ -176,6 +178,8 @@ pub fn finalize(analysis: &mut ScopeFileAnalysis, content: &str) {
         scope.scope_start_byte = line_starts.get(start - 1).copied().unwrap_or(content.len());
         scope.scope_end_byte = end_of_line(end).max(scope.scope_start_byte);
     }
+    let chemin = analysis.file_path.clone();
+    crate::scope_extraction::test_marks::mark_tests(&mut analysis.scopes, content, &chemin);
 }
 
 fn parse_file_raw(task: &ParseFileTask) -> ScopeFileAnalysis {

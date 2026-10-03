@@ -518,6 +518,7 @@ impl CppScopeExtractionParser {
         };
 
         ScopeInfo {
+            test: None,
             name: name.clone(),
             r#type: ScopeInfoType::Namespace,
             scope_start_line: start_line,
@@ -609,6 +610,7 @@ impl CppScopeExtractionParser {
         };
 
         ScopeInfo {
+            test: None,
             name: name.clone(),
             r#type: ScopeInfoType::Class,
             scope_start_line: start_line,
@@ -811,6 +813,7 @@ impl CppScopeExtractionParser {
         };
 
         ScopeInfo {
+            test: None,
             name: name.clone(),
             r#type: ScopeInfoType::Method,
             scope_start_line: start_line,
@@ -967,6 +970,7 @@ impl CppScopeExtractionParser {
         };
 
         ScopeInfo {
+            test: None,
             name,
             r#type: ScopeInfoType::Lambda,
             scope_start_line: start_line,
@@ -1103,6 +1107,7 @@ impl CppScopeExtractionParser {
         };
 
         ScopeInfo {
+            test: None,
             name: name.clone(),
             r#type: ScopeInfoType::Enum,
             scope_start_line: start_line,

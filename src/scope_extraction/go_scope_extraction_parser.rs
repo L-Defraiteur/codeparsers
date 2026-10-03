@@ -310,6 +310,7 @@ impl GoScopeExtractionParser {
         };
 
         ScopeInfo {
+            test: None,
             name: name.clone(),
             r#type: scope_type,
             scope_start_line: start_line,
@@ -571,6 +572,7 @@ impl GoScopeExtractionParser {
         };
 
         ScopeInfo {
+            test: None,
             name: name.clone(),
             r#type: ScopeInfoType::Function,
             scope_start_line: start_line,
@@ -708,6 +710,7 @@ impl GoScopeExtractionParser {
         };
 
         ScopeInfo {
+            test: None,
             name: name.clone(),
             r#type: ScopeInfoType::Method,
             scope_start_line: start_line,

@@ -7,4 +7,5 @@ pub mod python_scope_extraction_parser;
 pub mod rust_scope_extraction_parser;
 
 pub mod types;
+pub mod test_marks;
 pub mod usage;

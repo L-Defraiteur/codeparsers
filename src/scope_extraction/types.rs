@@ -213,6 +213,45 @@ pub enum ScopeInfoType {
     TexteBrut,
 }
 
+/// Le rôle d'un scope dans les tests.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestRole {
+    /// Un test : ce qu'un lanceur exécute.
+    Case,
+    /// Ce qui regroupe des tests (`mod tests` sous `#[cfg(test)]`, classe de
+    /// tests, `describe`).
+    Suite,
+    /// Du code qui n'existe que pour les tests (aide, fixture).
+    Support,
+}
+
+/// Ce qui dit qu'un scope est un test.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestCertainty {
+    /// La syntaxe ou l'outil le dit : `#[test]`, `#[cfg(test)]`,
+    /// `func TestX(t *testing.T)` dans un `_test.go`, une sous-classe de
+    /// `unittest.TestCase`, `@pytest.fixture`, `TEST(…)` de gtest.
+    Certain,
+    /// Seul le nom le dit, selon une convention réglable de l'outil (pytest :
+    /// `test_*` dans un fichier `test_*.py`, classes `Test*`).
+    Convention,
+}
+
+/// La marque de test d'un scope.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct TestMark {
+    pub role: TestRole,
+    pub certainty: TestCertainty,
+    /// Ce qui l'a dit : `#[test]`, `#[cfg(test)]`, `@pytest.fixture`,
+    /// `unittest.TestCase`, `test_*`, `TEST`, `*testing.T`…
+    pub marker: String,
+    /// Le nom du test quand il n'est pas celui du scope : `CalcTest.Adds`
+    /// pour `TEST(CalcTest, Adds)`, dont le scope s'appelle `TEST`.
+    pub name: Option<String>,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ScopeInfo {
     pub name: String,
@@ -262,6 +301,9 @@ pub struct ScopeInfo {
     pub docstring: Option<String>,
     pub decorators: Option<Vec<String>>,
     pub value: Option<String>,
+    /// La marque de test, posée par `parallel::parser_worker::finalize`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test: Option<TestMark>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
