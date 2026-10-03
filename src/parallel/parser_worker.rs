@@ -180,6 +180,55 @@ pub fn finalize(analysis: &mut ScopeFileAnalysis, content: &str) {
     }
     let chemin = analysis.file_path.clone();
     crate::scope_extraction::test_marks::mark_tests(&mut analysis.scopes, content, &chemin);
+    attach_import_origins(analysis);
+}
+
+/// **L'import de chaque référence** : le nom visible (l'alias, sinon le nom
+/// importé) → `(module, nom d'origine)`, depuis les imports du fichier et
+/// ceux que les scopes portent. Un nom importé de deux endroits différents
+/// n'a pas d'origine : on ne devine pas. Une référence dont le nom n'est pas
+/// importé prend l'origine de la tête de son qualificatif (`a::b::f` → `a`).
+fn attach_import_origins(analysis: &mut ScopeFileAnalysis) {
+    use crate::scope_extraction::types::ImportOrigin;
+    use std::collections::HashMap;
+    let mut table: HashMap<String, Option<(String, String)>> = HashMap::new();
+    let tous = analysis.import_references.iter().chain(analysis.scopes.iter().flat_map(|s| s.import_references.iter()));
+    for imp in tous {
+        let visible = imp.alias.clone().unwrap_or_else(|| imp.imported.clone());
+        if visible.is_empty() || visible == "*" {
+            continue;
+        }
+        // Le chemin entier quand il est gardé à part (Rust), et alors le
+        // nom seul de l'élément (`imported` y garde `collections::HashMap`).
+        let origine = match &imp.module_path {
+            Some(m) => (m.clone(), imp.imported.rsplit("::").next().unwrap_or(&imp.imported).to_string()),
+            None => (imp.source.clone(), imp.imported.clone()),
+        };
+        table
+            .entry(visible)
+            .and_modify(|o| {
+                if o.as_ref() != Some(&origine) {
+                    *o = None;
+                }
+            })
+            .or_insert(Some(origine));
+    }
+    if table.is_empty() {
+        return;
+    }
+    let lire = |nom: &str| table.get(nom).cloned().flatten();
+    for scope in &mut analysis.scopes {
+        for r in &mut scope.identifier_references {
+            if let Some((source, imported)) = lire(&r.identifier) {
+                r.import_origin = Some(ImportOrigin { source, imported, via_qualifier: false });
+            } else if let Some(q) = r.qualifier.as_deref() {
+                let tete = q.split("::").next().unwrap_or(q).split('.').next().unwrap_or(q);
+                if let Some((source, imported)) = lire(tete) {
+                    r.import_origin = Some(ImportOrigin { source, imported, via_qualifier: true });
+                }
+            }
+        }
+    }
 }
 
 fn parse_file_raw(task: &ParseFileTask) -> ScopeFileAnalysis {

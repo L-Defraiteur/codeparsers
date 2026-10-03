@@ -1173,6 +1173,7 @@ fn collect_includes(n: SyntaxNode, content: &str, out: &mut Vec<ImportReference>
             let chemin = brut.trim_matches(|c| c == '"' || c == '<' || c == '>').to_string();
             if !chemin.is_empty() {
                 out.push(ImportReference {
+    module_path: None,
                     source: chemin.clone(),
                     imported: chemin,
                     alias: None,

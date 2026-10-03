@@ -1139,6 +1139,7 @@ impl PythonScopeExtractionParser {
                         usage: Some(crate::scope_extraction::usage::usage_of(node)),
                         qualifier_type: None,
                         qualifier_deferred: None,
+                        import_origin: None,
                         identifier,
                         line: node.start_position().row + 1,
                         column: Some(node.start_position().column),
@@ -1173,6 +1174,7 @@ impl PythonScopeExtractionParser {
                         usage: Some(crate::scope_extraction::types::UsageKind::Call),
                         qualifier_type: None,
                         qualifier_deferred: None,
+                        import_origin: None,
                         identifier: name,
                         line: function_node.start_position().row + 1,
                         column: Some(function_node.start_position().column),
@@ -1218,6 +1220,7 @@ impl PythonScopeExtractionParser {
                         usage: Some(crate::scope_extraction::usage::usage_of(attr_node)),
                         qualifier_type: None,
                         qualifier_deferred: None,
+                        import_origin: None,
                         identifier: attribute,
                         line: attr_node.start_position().row + 1,
                         column: Some(attr_node.start_position().column),
@@ -1351,6 +1354,7 @@ impl PythonScopeExtractionParser {
                         .filter(|s| !s.is_empty());
 
                     push_ref(ImportReference {
+    module_path: None,
                         source: module_name.clone(),
                         imported: module_name.clone(),
                         alias,
@@ -1372,6 +1376,7 @@ impl PythonScopeExtractionParser {
                     let trimmed = part.trim();
                     if trimmed == "*" {
                         push_ref(ImportReference {
+    module_path: None,
                             source: source.clone(),
                             imported: "*".to_string(),
                             alias: None,
@@ -1386,6 +1391,7 @@ impl PythonScopeExtractionParser {
                             .filter(|s| !s.is_empty());
 
                         push_ref(ImportReference {
+    module_path: None,
                             source: source.clone(),
                             imported,
                             alias,
@@ -1474,6 +1480,7 @@ impl PythonScopeExtractionParser {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             qualifier_type: None,
                             qualifier_deferred: None,
+                            import_origin: None,
                             identifier: bound_type.clone(),
                             line: r.line,
                             column: r.column,
@@ -1551,6 +1558,7 @@ impl PythonScopeExtractionParser {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             qualifier_type: None,
                             qualifier_deferred: None,
+                            import_origin: None,
                             identifier: type_id.clone(),
                             line: scope.scope_start_line,
                             context: Some(scope.signature.clone()),
@@ -1568,6 +1576,7 @@ impl PythonScopeExtractionParser {
                         usage: Some(crate::scope_extraction::types::UsageKind::Type),
                         qualifier_type: None,
                         qualifier_deferred: None,
+                        import_origin: None,
                         identifier: type_id.clone(),
                         line: scope.scope_start_line,
                         context: Some(scope.signature.clone()),
@@ -1622,6 +1631,7 @@ impl PythonScopeExtractionParser {
                                 usage: Some(crate::scope_extraction::types::UsageKind::Type),
                                 qualifier_type: None,
                                 qualifier_deferred: None,
+                                import_origin: None,
                                 identifier: type_id.clone(),
                                 line: *start_line,
                                 context: Some(signature.clone()),
@@ -1639,6 +1649,7 @@ impl PythonScopeExtractionParser {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             qualifier_type: None,
                             qualifier_deferred: None,
+                            import_origin: None,
                             identifier: type_id.clone(),
                             line: *start_line,
                             context: Some(signature.clone()),
@@ -1700,6 +1711,7 @@ impl PythonScopeExtractionParser {
                         usage: Some(crate::scope_extraction::types::UsageKind::Type),
                         qualifier_type: None,
                         qualifier_deferred: None,
+                        import_origin: None,
                         identifier: type_name.clone(),
                         line: *line,
                         context: Some(context.clone()),

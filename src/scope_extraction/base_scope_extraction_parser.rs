@@ -2286,6 +2286,7 @@ impl BaseScopeExtractionParser {
                         usage: Some(crate::scope_extraction::types::UsageKind::Call),
                         qualifier_type: None,
                         qualifier_deferred: None,
+                        import_origin: None,
                         identifier,
                         line: row + 1,
                         column: Some(col),
@@ -2368,6 +2369,7 @@ impl BaseScopeExtractionParser {
                     usage: Some(crate::scope_extraction::usage::usage_of(current)),
                     qualifier_type: None,
                     qualifier_deferred: None,
+                    import_origin: None,
                     identifier,
                     line: row + 1,
                     column: Some(col),
@@ -2518,6 +2520,7 @@ impl BaseScopeExtractionParser {
                         let alias = if as_parts.len() > 1 { Some(as_parts[1].trim().to_string()) } else { None };
                         if !raw_symbol.is_empty() {
                             push_ref(&mut refs, &mut seen, ImportReference {
+    module_path: None,
                                 source: source.clone(), imported: raw_symbol.to_string(),
                                 alias, kind: ImportReferenceKind::Named, is_local: local, line: Some(line_num),
                             });
@@ -2527,6 +2530,7 @@ impl BaseScopeExtractionParser {
                     let alias_re = cached_regex!(r#"\*\s+as\s+(.+)"#);
                     if let Some(am) = alias_re.captures(part) {
                         push_ref(&mut refs, &mut seen, ImportReference {
+    module_path: None,
                             source: source.clone(), imported: "*".to_string(),
                             alias: Some(am[1].trim().to_string()), kind: ImportReferenceKind::Namespace,
                             is_local: local, line: Some(line_num),
@@ -2534,6 +2538,7 @@ impl BaseScopeExtractionParser {
                     }
                 } else if !part.is_empty() {
                     push_ref(&mut refs, &mut seen, ImportReference {
+    module_path: None,
                         source: source.clone(), imported: "default".to_string(),
                         alias: Some(part.to_string()), kind: ImportReferenceKind::Default,
                         is_local: local, line: Some(line_num),
@@ -2549,6 +2554,7 @@ impl BaseScopeExtractionParser {
             let source = cap[1].to_string();
             let local = is_local(&source);
             push_ref(&mut refs, &mut seen, ImportReference {
+    module_path: None,
                 source, imported: "*".to_string(), alias: None,
                 kind: ImportReferenceKind::SideEffect, is_local: local, line: Some(line_num),
             });
@@ -2569,6 +2575,7 @@ impl BaseScopeExtractionParser {
                     let alias = if as_parts.len() > 1 { Some(as_parts[1].trim().to_string()) } else { None };
                     if !symbol.is_empty() {
                         push_ref(&mut refs, &mut seen, ImportReference {
+    module_path: None,
                             source: source.clone(), imported: symbol.to_string(),
                             alias, kind: ImportReferenceKind::Dynamic,
                             is_local: local, line: Some(line_num),
@@ -2577,6 +2584,7 @@ impl BaseScopeExtractionParser {
                 }
             } else {
                 push_ref(&mut refs, &mut seen, ImportReference {
+    module_path: None,
                     source, imported: "*".to_string(), alias: Some(specifier),
                     kind: ImportReferenceKind::Dynamic, is_local: local, line: Some(line_num),
                 });
@@ -2592,6 +2600,7 @@ impl BaseScopeExtractionParser {
             let local = is_local(&source);
             let imported = if symbol == "default" { "default".to_string() } else { symbol };
             push_ref(&mut refs, &mut seen, ImportReference {
+    module_path: None,
                 source, imported, alias: None,
                 kind: ImportReferenceKind::Dynamic, is_local: local, line: Some(line_num),
             });
@@ -2755,6 +2764,7 @@ impl BaseScopeExtractionParser {
                         usage: Some(crate::scope_extraction::types::UsageKind::Other),
                         qualifier_type: None,
                         qualifier_deferred: None,
+                        import_origin: None,
                         identifier: symbol_name.to_string(),
                         line: scope.scope_start_line + line_offset,
                         column: Some(col),
@@ -2809,6 +2819,7 @@ impl BaseScopeExtractionParser {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             qualifier_type: None,
                             qualifier_deferred: None,
+                            import_origin: None,
                             identifier: type_id,
                             line: scope.scope_start_line,
                             column: None,
@@ -2829,6 +2840,7 @@ impl BaseScopeExtractionParser {
                         usage: Some(crate::scope_extraction::types::UsageKind::Type),
                         qualifier_type: None,
                         qualifier_deferred: None,
+                        import_origin: None,
                         identifier: type_id,
                         line: scope.scope_start_line,
                         column: None,
@@ -2876,6 +2888,7 @@ impl BaseScopeExtractionParser {
                                 usage: Some(crate::scope_extraction::types::UsageKind::Type),
                                 qualifier_type: None,
                                 qualifier_deferred: None,
+                                import_origin: None,
                                 identifier: type_id.clone(),
                                 line: scope.scope_start_line,
                                 column: None,
@@ -2895,6 +2908,7 @@ impl BaseScopeExtractionParser {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             qualifier_type: None,
                             qualifier_deferred: None,
+                            import_origin: None,
                             identifier: type_id.clone(),
                             line: scope.scope_start_line,
                             column: None,
@@ -2960,6 +2974,7 @@ impl BaseScopeExtractionParser {
                         usage: Some(crate::scope_extraction::types::UsageKind::Type),
                         qualifier_type: None,
                         qualifier_deferred: None,
+                        import_origin: None,
                         identifier: type_name,
                         line: ref_info.line,
                         column: None,
@@ -3519,6 +3534,7 @@ impl BaseScopeExtractionParser {
                     usage: Some(crate::scope_extraction::usage::usage_of_line(line)),
                     qualifier_type: None,
                     qualifier_deferred: None,
+                    import_origin: None,
                     identifier,
                     line: base + line_index,
                     column: Some(m.get(1).unwrap().start()),

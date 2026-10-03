@@ -463,6 +463,7 @@ impl RustScopeExtractionParser {
                 usage: Some(crate::scope_extraction::types::UsageKind::Inheritance),
                 qualifier_type: None,
                 qualifier_deferred: None,
+                import_origin: None,
                 identifier: base_trait_name,
                 line: start_line,
                 column: Some(0),
@@ -1319,6 +1320,7 @@ fn visit_rust_type_refs(
                     usage: Some(crate::scope_extraction::usage::usage_of(current)),
                     qualifier_type: None,
                     qualifier_deferred: None,
+                    import_origin: None,
                     identifier,
                     line: current.start_position().row + 1,
                     column: Some(current.start_position().column),
@@ -1350,6 +1352,7 @@ fn visit_rust_type_refs(
                         usage: Some(crate::scope_extraction::usage::usage_of(*last_id)),
                         qualifier_type: None,
                         qualifier_deferred: None,
+                        import_origin: None,
                         identifier,
                         line: last_id.start_position().row + 1,
                         column: Some(last_id.start_position().column),
@@ -1425,7 +1428,11 @@ fn collect_use_tree(n: SyntaxNode, prefixe: &[String], content: &str, ligne: usi
         } else {
             racine.clone()
         };
+        // Le module de l'élément, chemin entier (`crate::estimate` pour
+        // `use crate::estimate::Rate`) ; un glob : le chemin lui-même.
+        let module = if glob { chemin.join("::") } else { chemin[..chemin.len().saturating_sub(1)].join("::") };
         out.push(ImportReference {
+            module_path: (!module.is_empty()).then_some(module),
             source: racine,
             imported,
             alias: lie,

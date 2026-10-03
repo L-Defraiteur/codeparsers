@@ -24,6 +24,11 @@ pub enum ImportReferenceKind {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ImportReference {
+    /// Le chemin entier du module d'où vient le nom, quand `source` n'en
+    /// garde que la racine (Rust : `source` = `crate`, `module_path` =
+    /// `crate::estimate`). `None` : `source` est déjà ce chemin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module_path: Option<String>,
     pub source: String,
     pub imported: String,
     pub alias: Option<String>,
@@ -90,6 +95,22 @@ pub struct IdentifierReference {
     /// lire. Le résolveur, qui voit tout le projet, le calcule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub qualifier_deferred: Option<DeferredType>,
+    /// L'import qui amène ce nom — ou son qualificatif — dans le fichier,
+    /// tel qu'écrit. Un consommateur qui résout entre fichiers départage
+    /// des homonymes par lui ; l'analyseur n'en déduit rien.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub import_origin: Option<ImportOrigin>,
+}
+
+/// D'où vient un nom importé : le module (`crate::estimate`, `pkg.models`),
+/// le nom qu'il y porte (`Base` derrière l'alias `B`), et si c'est le
+/// qualificatif de la référence qui est importé (`connection::open()`
+/// après `use crate::connection`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ImportOrigin {
+    pub source: String,
+    pub imported: String,
+    pub via_qualifier: bool,
 }
 
 /// Un type à lire dans une déclaration d'ailleurs.

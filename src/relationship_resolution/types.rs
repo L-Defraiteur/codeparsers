@@ -133,6 +133,11 @@ pub struct RelationshipResolverOptions {
     /// `true`. À `false`, chaque référence n'est portée que par le scope le
     /// plus interne qui la contient.
     pub include_child_refs: Option<bool>,
+    /// Les chemins de **tout** le projet (absolus, ou relatifs à
+    /// `project_root`), quand on n'en analyse qu'une partie : un import vers
+    /// un module du projet analysé dans un autre paquet n'est pas une
+    /// bibliothèque externe. Sans elle, seuls les fichiers analysés comptent.
+    pub project_files: Option<Vec<String>>,
 }
 
 /// Référence non résolue (pour debug/amélioration)

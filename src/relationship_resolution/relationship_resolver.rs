@@ -186,8 +186,15 @@ impl RelationshipResolver {
 
         // Build global scope mapping
         self.build_global_scope_mapping(parsed_files);
-        self.project_modules = parsed_files
-            .keys()
+        // Les modules du projet : de tout le projet quand on nous le dit
+        // (`project_files`), sinon des seuls fichiers analysés — un import
+        // vers un fichier d'un autre paquet deviendrait une bibliothèque.
+        let projet: Vec<String> = match &self.options.project_files {
+            Some(p) => p.clone(),
+            None => parsed_files.keys().cloned().collect(),
+        };
+        self.project_modules = projet
+            .iter()
             .flat_map(|f| {
                 let rel = self.get_relative_path(f);
                 rel.split(['/', '\\'])
@@ -224,16 +231,20 @@ impl RelationshipResolver {
                 let local_refs = self.resolve_local_scope_references(scope, file_path);
                 relationships.extend(merge_by_target(local_refs));
 
-                // 2. Resolve import references (cross-file)
-                if self.options.resolve_cross_file.unwrap_or(true) {
+                // 2. Resolve import references (cross-file). « Fichier seul »
+                // (`resolve_cross_file: Some(false)`) : aucun lien entre
+                // fichiers — c'est l'affaire du consommateur, qui voit tout le
+                // projet ; les références inconnues se résolvent quand même
+                // dans leur fichier.
+                if self.cross_file() {
                     let import_result = self.resolve_import_references(scope, file_path, Some(analysis));
                     relationships.extend(merge_by_target(import_result.0));
                     unresolved_references.extend(import_result.1);
-
-                    // 2b. Fallback: resolve unknown references
-                    let unknown_refs = self.resolve_unknown_references(scope, file_path, Some(analysis));
-                    relationships.extend(unknown_refs);
                 }
+
+                // 2b. Fallback: resolve unknown references
+                let unknown_refs = self.resolve_unknown_references(scope, file_path, Some(analysis));
+                relationships.extend(unknown_refs);
 
                 // 3. Resolve PARENT_OF relationships
                 if self.options.include_contains.unwrap_or(true) {
@@ -310,6 +321,14 @@ impl RelationshipResolver {
             stats,
             unresolved_references,
         }
+    }
+
+    /// Les liens entre fichiers sont-ils résolus ici ? Faux : « fichier
+    /// seul », et rien de ce que rend le résolveur ne dépend plus des autres
+    /// fichiers du paquet — ni les cibles, ni les qualificatifs connus, ni
+    /// les types lus d'un champ ou d'un retour.
+    fn cross_file(&self) -> bool {
+        self.options.resolve_cross_file.unwrap_or(true)
     }
 
     /// Build global scope mapping: name → [{uuid, file, type, ...}]
@@ -394,13 +413,16 @@ impl RelationshipResolver {
             let candidates = self.scope_mapping.get(&r.identifier).cloned().unwrap_or_default();
             // Filter to same file — et, quand le type du qualificatif se lit,
             // aux méthodes de ce type.
-            let type_lu = self.effective_qualifier_type(r);
+            let type_lu = self.effective_qualifier_type(r, &relative_path);
             // Un type qui devait se lire ailleurs et ne s'y lit pas : pas de
             // repli sur le nom — sauf quand le qualificatif nomme lui-même un
             // type ou un espace de noms (`Foo::bar`), jamais une variable.
             let qualificatif_de_type = r.qualifier.as_ref().is_some_and(|q| {
                 self.scope_mapping.get(q).is_some_and(|c| {
-                    c.iter().any(|e| matches!(e.r#type.as_str(), "class" | "interface" | "enum" | "namespace" | "module" | "type_alias"))
+                    c.iter().any(|e| {
+                        (self.cross_file() || e.file == relative_path)
+                            && matches!(e.r#type.as_str(), "class" | "interface" | "enum" | "namespace" | "module" | "type_alias")
+                    })
                 })
             });
             if type_lu.is_none() && r.qualifier_deferred.is_some() && !qualificatif_de_type {
@@ -506,10 +528,13 @@ impl RelationshipResolver {
                 let is_instance_qual = qualifier == "this"
                     || (qualifier == "self" && (file_path.ends_with(".py") || file_path.ends_with(".rs")));
                 if !is_instance_qual {
-                    typed_owned = self.effective_qualifier_type(r);
+                    typed_owned = self.effective_qualifier_type(r, &relative_path);
                     let typed = typed_owned.as_deref();
-                    let qual_candidates = self.scope_mapping.get(qualifier);
-                    if typed.is_none() && qual_candidates.map_or(true, |c| c.is_empty()) {
+                    let qual_connu = self
+                        .scope_mapping
+                        .get(qualifier)
+                        .is_some_and(|c| c.iter().any(|e| self.cross_file() || e.file == relative_path));
+                    if typed.is_none() && !qual_connu {
                         continue;
                     }
                 }
@@ -518,7 +543,7 @@ impl RelationshipResolver {
 
             // Don't reference ourselves
             let mut valid: Vec<&ScopeMappingEntry> = candidates.iter()
-                .filter(|c| c.uuid != source_uuid)
+                .filter(|c| c.uuid != source_uuid && (self.cross_file() || c.file == relative_path))
                 .collect();
             if let Some(t) = typed {
                 valid.retain(|c| c.parent.as_deref() == Some(t));
@@ -784,10 +809,12 @@ impl RelationshipResolver {
                 _ => continue,
             };
 
-            // Prefer decorator in same file, then any
-            let decorator_entry = candidates.iter()
-                .find(|c| c.file == relative_path)
-                .unwrap_or(&candidates[0]);
+            // Prefer decorator in same file, then any (sauf « fichier seul »)
+            let decorator_entry = match candidates.iter().find(|c| c.file == relative_path) {
+                Some(c) => c,
+                None if self.cross_file() => &candidates[0],
+                None => continue,
+            };
 
             relationships.push(ResolvedRelationship {
                 r#type: RelationshipType::DECORATES,
@@ -896,19 +923,27 @@ impl RelationshipResolver {
     /// (`qualifier_type`), ou dans une déclaration d'ailleurs — le champ d'un
     /// type, le retour d'une fonction qui se résout sans ambiguïté. `None`
     /// quand il ne se lit pas : pas de devinette.
-    fn effective_qualifier_type(&self, r: &IdentifierReference) -> Option<String> {
+    fn effective_qualifier_type(&self, r: &IdentifierReference, relative_path: &str) -> Option<String> {
         use crate::scope_extraction::types::DeferredType;
         if let Some(t) = &r.qualifier_type {
             return Some(t.clone());
         }
         match r.qualifier_deferred.as_ref()? {
-            DeferredType::FieldOf { owner, field } => self.field_types.get(&(owner.clone(), field.clone())).cloned().flatten(),
+            DeferredType::FieldOf { owner, field } => {
+                // « Fichier seul » : le type propriétaire doit être déclaré
+                // dans ce fichier — sa déclaration ailleurs dépend du paquet.
+                if !self.cross_file() && !self.scope_mapping.get(owner).is_some_and(|c| c.iter().any(|e| e.file == relative_path)) {
+                    return None;
+                }
+                self.field_types.get(&(owner.clone(), field.clone())).cloned().flatten()
+            }
             DeferredType::ReturnOf { function, unwrap } => {
                 let fonctions: Vec<&ScopeMappingEntry> = self
                     .scope_mapping
                     .get(function)?
                     .iter()
                     .filter(|c| c.r#type == "function" || c.r#type == "method")
+                    .filter(|c| self.cross_file() || c.file == relative_path)
                     .collect();
                 let [unique] = fonctions.as_slice() else { return None };
                 let (ecrit, parent) = self.return_types.get(&unique.uuid)?;
@@ -963,7 +998,7 @@ impl RelationshipResolver {
                 // Pick best candidate (same file preferred)
                 let target = candidates.iter()
                     .find(|c| c.file == relative_path && c.uuid != source_uuid)
-                    .or_else(|| candidates.iter().find(|c| c.uuid != source_uuid));
+                    .or_else(|| candidates.iter().find(|c| self.cross_file() && c.uuid != source_uuid));
 
                 if let Some(target) = target {
                     relationships.push(ResolvedRelationship {
