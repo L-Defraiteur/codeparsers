@@ -45,7 +45,7 @@ fn canonique(mut v: serde_json::Value) -> String {
     }
     if let Some(scopes) = v.get_mut("scopes").and_then(|s| s.as_array_mut()) {
         for s in scopes {
-            for champ in ["identifier_references", "import_references"] {
+            for champ in ["identifier_references", "import_references", "imports", "exports", "dependencies"] {
                 if let Some(l) = s.get_mut(champ).and_then(|l| l.as_array_mut()) {
                     l.sort_by_key(|x| x.to_string());
                 }

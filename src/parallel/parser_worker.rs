@@ -196,6 +196,11 @@ fn ordre_fixe(analysis: &mut ScopeFileAnalysis) {
             (a.line, a.column, &a.identifier, &a.qualifier, &a.context).cmp(&(b.line, b.column, &b.identifier, &b.qualifier, &b.context))
         });
         scope.import_references.sort_by(|a, b| (a.line, &a.source, &a.imported, &a.alias).cmp(&(b.line, &b.source, &b.imported, &b.alias)));
+        // Des ensembles de noms ; `modifiers` et `decorators` suivent l'ordre
+        // du code, qui est stable.
+        scope.imports.sort();
+        scope.exports.sort();
+        scope.dependencies.sort();
     }
     analysis.import_references.sort_by(|a, b| (a.line, &a.source, &a.imported, &a.alias).cmp(&(b.line, &b.source, &b.imported, &b.alias)));
     analysis.imports.sort();
