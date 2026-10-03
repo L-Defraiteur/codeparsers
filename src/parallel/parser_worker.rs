@@ -181,7 +181,72 @@ pub fn finalize(analysis: &mut ScopeFileAnalysis, content: &str) {
     let chemin = analysis.file_path.clone();
     crate::scope_extraction::test_marks::mark_tests(&mut analysis.scopes, content, &chemin);
     attach_import_origins(analysis);
+    lire_les_types_differes(analysis);
     ordre_fixe(analysis);
+}
+
+/// **Un type différé dont la déclaration est dans le fichier se lit ici.**
+/// `self.dialect.x()` attend le type du champ `dialect` ; `make().x()`, le
+/// retour de `make`. Quand ce champ ou cette fonction sont déclarés dans le
+/// même fichier, c'est un fait du fichier : on l'écrit dans
+/// `qualifier_type`, que lit tout consommateur — le résolveur en fichier
+/// seul ne relie plus entre fichiers, et les rendez-vous de rag3weaver ne
+/// savent rien des types différés. Un nom déclaré deux fois avec deux types
+/// ne donne rien : on ne devine pas.
+fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
+    use crate::scope_extraction::types::{ClassMemberInfoMemberType, DeferredType};
+    use crate::scope_extraction::usage::base_type_name;
+    use std::collections::HashMap;
+    let mut champs: HashMap<(String, String), Option<String>> = HashMap::new();
+    let mut retours: HashMap<String, Option<(String, Option<String>)>> = HashMap::new();
+    for s in &analysis.scopes {
+        for m in s.members.iter().flatten() {
+            if m.member_type != ClassMemberInfoMemberType::Property {
+                continue;
+            }
+            let Some(t) = m.r#type.as_deref().and_then(base_type_name) else { continue };
+            champs
+                .entry((s.name.clone(), m.name.clone()))
+                .and_modify(|v| {
+                    if v.as_deref() != Some(t.as_str()) {
+                        *v = None;
+                    }
+                })
+                .or_insert(Some(t));
+        }
+        if matches!(s.r#type, ScopeInfoType::Function | ScopeInfoType::Method) {
+            if let Some(rt) = s.return_type.as_ref().filter(|t| !t.trim().is_empty()) {
+                let v = (rt.clone(), s.parent.clone());
+                retours.entry(s.name.clone()).and_modify(|o| *o = None).or_insert(Some(v));
+            }
+        }
+    }
+    if champs.is_empty() && retours.is_empty() {
+        return;
+    }
+    for s in &mut analysis.scopes {
+        for r in &mut s.identifier_references {
+            if r.qualifier_type.is_some() {
+                continue;
+            }
+            let lu = match r.qualifier_deferred.as_ref() {
+                Some(DeferredType::FieldOf { owner, field }) => champs.get(&(owner.clone(), field.clone())).cloned().flatten(),
+                Some(DeferredType::ReturnOf { function, unwrap }) => retours.get(function).cloned().flatten().and_then(|(ecrit, parent)| {
+                    let ecrit = if *unwrap {
+                        crate::relationship_resolution::relationship_resolver::first_generic_argument(&ecrit, &["Result", "Option"])?
+                    } else {
+                        ecrit
+                    };
+                    let t = base_type_name(&ecrit)?;
+                    if t == "Self" { parent } else { Some(t) }
+                }),
+                None => None,
+            };
+            if lu.is_some() {
+                r.qualifier_type = lu;
+            }
+        }
+    }
 }
 
 /// **Une sortie qui ne dépend pas de l'exécution.** Des `HashSet` et

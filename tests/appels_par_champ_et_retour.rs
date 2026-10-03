@@ -138,12 +138,26 @@ fn rust_ce_qui_ne_se_lit_pas_ne_donne_rien() {
     n_appelle_pas(&rels, "deux_niveaux", "get");
 }
 
+/// Une fonction définie dans le fichier de l'appel l'emporte sur ses
+/// homonymes d'ailleurs — en Rust, un `make_store()` non qualifié est celle
+/// du module ; un import du même nom y serait une erreur. Le type de son
+/// retour est un fait du fichier, lu dès l'analyse.
 #[test]
-fn rust_une_fonction_ambigue_ne_donne_pas_de_type() {
+fn rust_la_fonction_du_fichier_l_emporte_sur_ses_homonymes() {
     let autre = "pub fn make_store() -> super::Other {\n    super::Other\n}\n";
     let rels = appels(&[("s.rs", RUST), ("autre.rs", autre)]);
-    n_appelle_pas(&rels, "par_retour", "get");
-    n_appelle_pas(&rels, "par_chaine", "get");
+    appelle(&rels, "par_retour", "get", "Store");
+}
+
+/// Appelée d'un fichier qui ne la définit pas, une fonction définie deux
+/// fois ailleurs ne donne pas de type.
+#[test]
+fn rust_une_fonction_ambigue_ne_donne_pas_de_type() {
+    let a = "pub struct Store;\nimpl Store {\n    pub fn get(&self) {}\n}\npub fn make_store() -> Store {\n    Store\n}\n";
+    let b = "pub struct Other;\nimpl Other {\n    pub fn get(&self) {}\n}\npub fn make_store() -> Other {\n    Other\n}\n";
+    let c = "pub fn ailleurs() {\n    let s = make_store();\n    s.get();\n}\n";
+    let rels = appels(&[("a.rs", a), ("b.rs", b), ("c.rs", c)]);
+    n_appelle_pas(&rels, "ailleurs", "get");
 }
 
 // ---------------------------------------------------------------------------

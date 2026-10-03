@@ -185,3 +185,55 @@ fn un_acces_de_champ_ne_vise_pas_une_methode_homonyme() {
     assert!(!rels.iter().any(|k| k.contains(":name → ") && k.ends_with(":label")), "self.label est un champ : {rels:#?}");
     assert!(rels.iter().any(|k| k.contains(":appelle → ") && k.ends_with(":name")), "t.name() est un appel : {rels:#?}");
 }
+
+/// **Un type différé dont la déclaration est dans le fichier se lit dès
+/// l'analyse.** En fichier seul, le résolveur ne relie plus entre fichiers :
+/// c'est le consommateur qui le fait, par le type lu de la référence.
+/// `self.dialect.drop_vector_index()` avec `dialect: Arc<dyn SchemaDialect>`
+/// déclaré dans le même fichier porte donc `SchemaDialect` — sans quoi
+/// l'appel sur un objet trait n'avait plus de cible (banc des relations,
+/// `bulk_vector_index → drop_vector_index`). De même un retour déclaré.
+#[test]
+fn un_type_differe_du_fichier_se_lit_des_l_analyse() {
+    let source = "use std::sync::Arc;\n\npub trait SchemaDialect {\n    fn drop_vector_index(&self) -> u32;\n}\n\npub struct Catalog {\n    dialect: Arc<dyn SchemaDialect>,\n}\n\nfn store() -> Option<Box<Catalog>> {\n    None\n}\n\nimpl Catalog {\n    pub fn bulk(&self) -> u32 {\n        self.dialect.drop_vector_index()\n    }\n    pub fn via_retour(&self) -> u32 {\n        store()?.bulk()\n    }\n}\n";
+    let chemin = "/virtual/catalog.rs".to_string();
+    let a = ProjectParser::new(ProjectParserOptions { verbose: false }).parse_project(ParseProjectOptions {
+        root: "/virtual".to_string(),
+        files: vec![chemin.clone()],
+        content_map: Some(HashMap::from([(chemin, source.to_string())])),
+        resolve_relationships: Some(false),
+        resolver_options: None,
+    });
+    let refs: Vec<_> = a.files.values().flat_map(|f| f.scopes.iter().flat_map(|s| s.identifier_references.clone())).collect();
+    let drop = refs.iter().find(|r| r.identifier == "drop_vector_index" && r.qualifier.is_some()).expect("la référence");
+    assert_eq!(drop.qualifier_type.as_deref(), Some("SchemaDialect"), "{drop:#?}");
+    let bulk = refs.iter().find(|r| r.identifier == "bulk" && r.line == 20).expect("la référence bulk");
+    assert_eq!(bulk.qualifier_type.as_deref(), Some("Catalog"), "{bulk:#?}");
+}
+
+/// **En Rust, la racine d'un `use` dit seule ce qui est interne** :
+/// `crate`, `self`, `super`, ou un nom déclaré dans le fichier — un
+/// `mod node;` (Rust 2018 : `use node::Port` vise ce module), un item
+/// (`use Kind::*`), un nom lié par un `use` interne. Le reste est une crate
+/// externe. Sans rien savoir des autres fichiers : en fichier seul, `node`,
+/// `graph`, `ConfigParamType` devenaient des bibliothèques.
+#[test]
+fn rust_un_module_declare_dans_le_fichier_n_est_pas_une_bibliotheque() {
+    let source = "pub mod node;\nmod port;\nuse super::registre;\nuse node::Port;\nuse port::{Kind, PortType};\nuse registre::Entree;\nuse Mode::*;\nuse serde::Serialize;\nuse std::fmt;\n\npub enum Mode {\n    A,\n}\n\npub fn f(p: Port, k: Kind, t: PortType, e: Entree, x: &dyn fmt::Debug) -> Mode {\n    let _ = (p, k, t, e, x);\n    A\n}\n\n#[derive(Serialize)]\npub struct S;\n";
+    let contenus = HashMap::from([("/virtual/mod.rs".to_string(), source.to_string())]);
+    let libs: std::collections::BTreeSet<String> = ProjectParser::new(ProjectParserOptions { verbose: false })
+        .parse_project(ParseProjectOptions {
+            root: "/virtual".to_string(),
+            files: vec!["/virtual/mod.rs".to_string()],
+            content_map: Some(contenus),
+            resolve_relationships: Some(true),
+            resolver_options: Some(options(true)),
+        })
+        .relationships
+        .map_or_else(Vec::new, |r| r.relationships)
+        .into_iter()
+        .filter(|r| r.r#type == RelationshipType::USESLIBRARY)
+        .map(|r| r.to_name)
+        .collect();
+    assert_eq!(libs, ["serde", "std"].iter().map(|s| s.to_string()).collect(), "seules les crates externes");
+}
