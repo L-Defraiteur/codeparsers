@@ -911,6 +911,7 @@ impl CScopeExtractionParser {
                     let key = format!("{}:{}:{}", identifier, node.start_position().row + 1, node.start_position().column);
                     if seen.insert(key) {
                         references.push(IdentifierReference {
+                            usage: Some(crate::scope_extraction::usage::usage_of(node)),
                             identifier,
                             line: node.start_position().row + 1,
                             column: Some(node.start_position().column),

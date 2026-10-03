@@ -1,4 +1,5 @@
 use crate::cached_regex;
+use crate::scope_extraction::types::{IdentifierReference, UsageKind, UsageSite};
 use crate::import_resolution::types::BaseImportResolver;
 use crate::parallel::parser_worker::SupportedLanguage;
 use crate::relationship_resolution::types::EnrichedFileAnalysis;
@@ -362,6 +363,7 @@ impl RelationshipResolver {
                     metadata: Some(RelationshipMetadata {
                         context: r.context.clone(),
                         via_import: Some(false),
+                        sites: vec![site_of(r)],
                         ..Default::default()
                     }),
                 });
@@ -407,6 +409,9 @@ impl RelationshipResolver {
 
         let source_uuid = self.generate_uuid(scope, &relative_path);
         let mut seen_targets: HashSet<String> = HashSet::new();
+        // La relation déjà émise vers chaque cible, pour y ajouter les sites
+        // des références suivantes au lieu de les perdre.
+        let mut relation_of_target: HashMap<String, usize> = HashMap::new();
 
         for r in &refs {
             // Only process unknown references
@@ -465,6 +470,14 @@ impl RelationshipResolver {
 
             if let Some(target) = target_entry {
                 if seen_targets.contains(&target.uuid) {
+                    if let Some(&i) = relation_of_target.get(&target.uuid) {
+                        if let Some(m) = relationships[i].metadata.as_mut() {
+                            let s = site_of(r);
+                            if !m.sites.contains(&s) {
+                                m.sites.push(s);
+                            }
+                        }
+                    }
                     continue;
                 }
                 // Skip if target is a child of the source scope
@@ -475,6 +488,7 @@ impl RelationshipResolver {
 
                 let rel_type = self.detect_relationship_type(scope, target, r.context.as_deref());
                 let is_cross_file = target.file != relative_path;
+                relation_of_target.insert(target.uuid.clone(), relationships.len());
 
                 relationships.push(ResolvedRelationship {
                     r#type: rel_type,
@@ -490,6 +504,7 @@ impl RelationshipResolver {
                         context: r.context.clone(),
                         via_import: Some(false),
                         fallback_resolution: if is_cross_file { Some(true) } else { None },
+                        sites: vec![site_of(r)],
                         ..Default::default()
                     }),
                 });
@@ -586,6 +601,7 @@ impl RelationshipResolver {
                             context: r.context.clone(),
                             via_import: Some(true),
                             import_path: Some(imp.source.clone()),
+                            sites: vec![site_of(r)],
                             ..Default::default()
                         }),
                     });
@@ -641,20 +657,20 @@ impl RelationshipResolver {
         let target_uuid = self.generate_uuid(scope, &relative_path);
 
         // Collect decorator names/arguments
-        let mut decorator_infos: Vec<(String, Option<String>)> = Vec::new();
+        let mut decorator_infos: Vec<(String, Option<String>, Option<usize>)> = Vec::new();
 
         if let Some(ref details) = scope.decorator_details {
             for d in details {
-                decorator_infos.push((d.name.clone(), d.arguments.clone()));
+                decorator_infos.push((d.name.clone(), d.arguments.clone(), Some(d.line)));
             }
         } else if let Some(ref decorators) = scope.decorators {
             for d in decorators {
                 let name = d.trim_start_matches('@').split('(').next().unwrap_or(d).to_string();
-                decorator_infos.push((name, None));
+                decorator_infos.push((name, None, None));
             }
         }
 
-        for (name, args) in &decorator_infos {
+        for (name, args, line) in &decorator_infos {
             let decorator_name = name.trim_start_matches('@');
             let candidates = match self.scope_mapping.get(decorator_name) {
                 Some(c) if !c.is_empty() => c,
@@ -678,6 +694,7 @@ impl RelationshipResolver {
                 to_type: scope_type_str(&scope.r#type).to_string(),
                 metadata: Some(RelationshipMetadata {
                     decorator_args: args.clone(),
+                    sites: vec![UsageSite { usage: UsageKind::Call, line: *line }],
                     ..Default::default()
                 }),
             });
@@ -723,7 +740,7 @@ impl RelationshipResolver {
         }
 
         let scope_uuid = self.generate_uuid(scope, &relative_path);
-        let mut seen_libraries: HashSet<String> = HashSet::new();
+        let mut relation_of_library: HashMap<String, usize> = HashMap::new();
 
         for imp in &scope.import_references {
             // Skip local imports
@@ -731,10 +748,16 @@ impl RelationshipResolver {
                 continue;
             }
 
-            if seen_libraries.contains(&imp.source) {
+            let site = UsageSite { usage: UsageKind::Import, line: imp.line };
+            if let Some(&i) = relation_of_library.get(&imp.source) {
+                if let Some(m) = relationships[i].metadata.as_mut() {
+                    if !m.sites.contains(&site) {
+                        m.sites.push(site);
+                    }
+                }
                 continue;
             }
-            seen_libraries.insert(imp.source.clone());
+            relation_of_library.insert(imp.source.clone(), relationships.len());
 
             let library_uuid = self.generate_external_library_uuid(&imp.source);
 
@@ -751,6 +774,7 @@ impl RelationshipResolver {
                 metadata: Some(RelationshipMetadata {
                     symbol: Some(imp.imported.clone()),
                     import_path: Some(imp.source.clone()),
+                    sites: vec![site],
                     ..Default::default()
                 }),
             });
@@ -816,7 +840,10 @@ impl RelationshipResolver {
                         to_name: target.name.clone(),
                         from_type: format!("{:?}", scope.r#type),
                         to_type: target.r#type.clone(),
-                        metadata: None,
+                        metadata: Some(RelationshipMetadata {
+                            sites: vec![UsageSite { usage: UsageKind::Inheritance, line: Some(scope.signature_start_line) }],
+                            ..Default::default()
+                        }),
                     });
                 }
             }
@@ -1125,4 +1152,9 @@ pub fn detect_relationship_type_by_name(
 
         // Default
         RelationshipType::CONSUMES
+}
+
+/// Le site d'une référence : son genre (lu à l'extraction) et sa ligne.
+fn site_of(r: &IdentifierReference) -> UsageSite {
+    UsageSite { usage: r.usage.clone().unwrap_or(UsageKind::Other), line: Some(r.line) }
 }

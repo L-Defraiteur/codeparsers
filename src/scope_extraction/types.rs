@@ -41,6 +41,29 @@ pub enum IdentifierReferenceKind {
     Unknown,
 }
 
+/// Comment un usage se sert de ce qu'il nomme, lu sur l'AST là où la
+/// grammaire le dit : la fonction d'un appel (ou d'une instanciation), une
+/// position de type, une clause d'héritage, une instruction d'import. Tout le
+/// reste (lecture, écriture, argument) est `Other`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageKind {
+    Call,
+    Type,
+    Import,
+    Inheritance,
+    Other,
+}
+
+/// Un usage localisé : son genre et sa ligne (1 = première ligne du fichier).
+/// La ligne manque quand l'analyseur ne la connaît pas (import trouvé par
+/// expression régulière sans position).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct UsageSite {
+    pub usage: UsageKind,
+    pub line: Option<usize>,
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct IdentifierReference {
     pub identifier: String,
@@ -52,6 +75,10 @@ pub struct IdentifierReference {
     pub source: Option<String>,
     pub target_scope: Option<String>,
     pub is_local_import: Option<bool>,
+    /// Le genre de cet usage ; `None` seulement pour une référence construite
+    /// hors de l'analyseur.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<UsageKind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

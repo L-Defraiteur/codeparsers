@@ -66,6 +66,12 @@ pub struct RelationshipMetadata {
     pub decorator_args: Option<String>,
     pub fallback_resolution: Option<bool>,
     pub symbol: Option<String>,
+    /// Les usages qui ont fait cette relation : un par occurrence, ou
+    /// plusieurs quand le résolveur a fusionné les références d'un scope vers
+    /// une même cible. Vide pour une relation structurelle (PARENT_OF,
+    /// HAS_PARENT, DEFINED_IN), qui n'est pas un usage.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sites: Vec<crate::scope_extraction::types::UsageSite>,
 }
 
 /// Entrée dans le mapping global des scopes

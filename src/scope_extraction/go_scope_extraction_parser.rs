@@ -987,6 +987,7 @@ impl GoScopeExtractionParser {
                         let key = format!("{}:{}:{}", identifier, type_node.start_position().row + 1, type_node.start_position().column);
                         if seen.insert(key) {
                             references.push(IdentifierReference {
+                                usage: Some(crate::scope_extraction::usage::usage_of(type_node)),
                                 identifier,
                                 line: type_node.start_position().row + 1,
                                 column: Some(type_node.start_position().column),
@@ -1016,6 +1017,7 @@ impl GoScopeExtractionParser {
                         let key = format!("{}:{}:{}", identifier, node.start_position().row + 1, node.start_position().column);
                         if seen.insert(key) {
                             references.push(IdentifierReference {
+                                usage: Some(crate::scope_extraction::usage::usage_of(node)),
                                 identifier,
                                 line: node.start_position().row + 1,
                                 column: Some(node.start_position().column),
@@ -1052,6 +1054,7 @@ impl GoScopeExtractionParser {
                         let key = format!("{}:{}:{}", identifier, field_node.start_position().row + 1, field_node.start_position().column);
                         if seen.insert(key) {
                             references.push(IdentifierReference {
+                                usage: Some(crate::scope_extraction::usage::usage_of(field_node)),
                                 identifier,
                                 line: field_node.start_position().row + 1,
                                 column: Some(field_node.start_position().column),
@@ -1086,6 +1089,7 @@ impl GoScopeExtractionParser {
                         let key = format!("{}:{}:{}", identifier, type_node.start_position().row + 1, type_node.start_position().column);
                         if seen.insert(key) {
                             references.push(IdentifierReference {
+                                usage: Some(crate::scope_extraction::usage::usage_of(type_node)),
                                 identifier,
                                 line: type_node.start_position().row + 1,
                                 column: Some(type_node.start_position().column),

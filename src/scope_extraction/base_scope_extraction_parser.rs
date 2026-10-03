@@ -2183,6 +2183,7 @@ impl BaseScopeExtractionParser {
                     let col = name_node.start_position().column;
                     let key = format!("{}:{}:{}:jsx", identifier, row, col);
                     references.entry(key).or_insert_with(|| IdentifierReference {
+                        usage: Some(crate::scope_extraction::types::UsageKind::Call),
                         identifier,
                         line: row + 1,
                         column: Some(col),
@@ -2256,6 +2257,7 @@ impl BaseScopeExtractionParser {
                 let q_str = qualifier.as_deref().unwrap_or("root");
                 let key = format!("{}:{}:{}:{}", identifier, row, col, q_str);
                 references.entry(key).or_insert_with(|| IdentifierReference {
+                    usage: Some(crate::scope_extraction::usage::usage_of(current)),
                     identifier,
                     line: row + 1,
                     column: Some(col),
@@ -2357,6 +2359,7 @@ impl BaseScopeExtractionParser {
         // Standard imports: import X from 'source'
         let import_re = cached_regex!(r#"import\s+([^;]+?)\s+from\s+['"]([^'"]+)['"]"#);
         for cap in import_re.captures_iter(content) {
+            let line_num = content[..cap.get(0).unwrap().start()].split('\n').count();
             let raw_spec = cap[1].trim().to_string();
             let source = cap[2].to_string();
             let local = is_local(&source);
@@ -2373,7 +2376,7 @@ impl BaseScopeExtractionParser {
                         if !raw_symbol.is_empty() {
                             push_ref(&mut refs, &mut seen, ImportReference {
                                 source: source.clone(), imported: raw_symbol.to_string(),
-                                alias, kind: ImportReferenceKind::Named, is_local: local, line: None,
+                                alias, kind: ImportReferenceKind::Named, is_local: local, line: Some(line_num),
                             });
                         }
                     }
@@ -2383,14 +2386,14 @@ impl BaseScopeExtractionParser {
                         push_ref(&mut refs, &mut seen, ImportReference {
                             source: source.clone(), imported: "*".to_string(),
                             alias: Some(am[1].trim().to_string()), kind: ImportReferenceKind::Namespace,
-                            is_local: local, line: None,
+                            is_local: local, line: Some(line_num),
                         });
                     }
                 } else if !part.is_empty() {
                     push_ref(&mut refs, &mut seen, ImportReference {
                         source: source.clone(), imported: "default".to_string(),
                         alias: Some(part.to_string()), kind: ImportReferenceKind::Default,
-                        is_local: local, line: None,
+                        is_local: local, line: Some(line_num),
                     });
                 }
             }
@@ -2399,11 +2402,12 @@ impl BaseScopeExtractionParser {
         // Side-effect imports: import 'source'
         let side_re = cached_regex!(r#"import\s+['"]([^'"]+)['"]"#);
         for cap in side_re.captures_iter(content) {
+            let line_num = content[..cap.get(0).unwrap().start()].split('\n').count();
             let source = cap[1].to_string();
             let local = is_local(&source);
             push_ref(&mut refs, &mut seen, ImportReference {
                 source, imported: "*".to_string(), alias: None,
-                kind: ImportReferenceKind::SideEffect, is_local: local, line: None,
+                kind: ImportReferenceKind::SideEffect, is_local: local, line: Some(line_num),
             });
         }
 
@@ -2603,6 +2607,7 @@ impl BaseScopeExtractionParser {
                     let col = m.start() - before_match.rfind('\n').map_or(0, |i| i + 1);
 
                     scope.identifier_references.push(IdentifierReference {
+                        usage: Some(crate::scope_extraction::types::UsageKind::Other),
                         identifier: symbol_name.to_string(),
                         line: scope.scope_start_line + line_offset,
                         column: Some(col),
@@ -2654,6 +2659,7 @@ impl BaseScopeExtractionParser {
                         let target_id = format!("{}::{}:{}-{}",
                             target.file_path, target.name, target.scope_start_line, target.scope_end_line);
                         scope.identifier_references.push(IdentifierReference {
+                            usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             identifier: type_id,
                             line: scope.scope_start_line,
                             column: None,
@@ -2671,6 +2677,7 @@ impl BaseScopeExtractionParser {
                 // Check imports
                 if let Some(import_match) = import_map.get(&type_id) {
                     scope.identifier_references.push(IdentifierReference {
+                        usage: Some(crate::scope_extraction::types::UsageKind::Type),
                         identifier: type_id,
                         line: scope.scope_start_line,
                         column: None,
@@ -2715,6 +2722,7 @@ impl BaseScopeExtractionParser {
                             let target_id = format!("{}::{}:{}-{}",
                                 target.file_path, target.name, target.scope_start_line, target.scope_end_line);
                             scope.identifier_references.push(IdentifierReference {
+                                usage: Some(crate::scope_extraction::types::UsageKind::Type),
                                 identifier: type_id.clone(),
                                 line: scope.scope_start_line,
                                 column: None,
@@ -2731,6 +2739,7 @@ impl BaseScopeExtractionParser {
 
                     if let Some(import_match) = import_map.get(type_id) {
                         scope.identifier_references.push(IdentifierReference {
+                            usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             identifier: type_id.clone(),
                             line: scope.scope_start_line,
                             column: None,
@@ -2793,6 +2802,7 @@ impl BaseScopeExtractionParser {
                 });
                 if !already {
                     class_scope.identifier_references.push(IdentifierReference {
+                        usage: Some(crate::scope_extraction::types::UsageKind::Type),
                         identifier: type_name,
                         line: ref_info.line,
                         column: None,
@@ -3331,6 +3341,7 @@ impl BaseScopeExtractionParser {
                 }
 
                 references.push(IdentifierReference {
+                    usage: Some(crate::scope_extraction::usage::usage_of_line(line)),
                     identifier,
                     line: base + line_index,
                     column: Some(m.get(1).unwrap().start()),

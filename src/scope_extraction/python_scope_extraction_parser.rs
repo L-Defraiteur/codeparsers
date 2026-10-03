@@ -1097,6 +1097,7 @@ impl PythonScopeExtractionParser {
                 let key = format!("{}:{}:{}:root", identifier, node.start_position().row, node.start_position().column);
                 if !references.contains_key(&key) {
                     references.insert(key, IdentifierReference {
+                        usage: Some(crate::scope_extraction::usage::usage_of(node)),
                         identifier,
                         line: node.start_position().row + 1,
                         column: Some(node.start_position().column),
@@ -1128,6 +1129,7 @@ impl PythonScopeExtractionParser {
                 let key = format!("{}:{}:{}:call", name, function_node.start_position().row, function_node.start_position().column);
                 if !references.contains_key(&key) {
                     references.insert(key, IdentifierReference {
+                        usage: Some(crate::scope_extraction::types::UsageKind::Call),
                         identifier: name,
                         line: function_node.start_position().row + 1,
                         column: Some(function_node.start_position().column),
@@ -1168,6 +1170,7 @@ impl PythonScopeExtractionParser {
                 let key = format!("{}:{}:{}:{}", attribute, attr_node.start_position().row, attr_node.start_position().column, qualifier_str);
                 if !references.contains_key(&key) {
                     references.insert(key, IdentifierReference {
+                        usage: Some(crate::scope_extraction::usage::usage_of(attr_node)),
                         identifier: attribute,
                         line: attr_node.start_position().row + 1,
                         column: Some(attr_node.start_position().column),
@@ -1291,6 +1294,7 @@ impl PythonScopeExtractionParser {
         // Match: import foo, import foo as bar
         let import_re = cached_regex!(r"(?m)^import\s+(.+)$");
         for cap in import_re.captures_iter(content) {
+            let line_num = content[..cap.get(0).unwrap().start()].split('\n').count();
             if let Some(m) = cap.get(1) {
                 for part in m.as_str().split(',') {
                     let trimmed = part.trim();
@@ -1305,7 +1309,7 @@ impl PythonScopeExtractionParser {
                         alias,
                         kind: ImportReferenceKind::Namespace,
                         is_local: true,
-                        line: None,
+                        line: Some(line_num),
                     }, &mut seen, &mut refs);
                 }
             }
@@ -1314,6 +1318,7 @@ impl PythonScopeExtractionParser {
         // Match: from foo import bar, baz as qux
         let from_re = cached_regex!(r"(?m)^from\s+(\S+)\s+import\s+(.+)$");
         for cap in from_re.captures_iter(content) {
+            let line_num = content[..cap.get(0).unwrap().start()].split('\n').count();
             let source = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
             if let Some(imports_str) = cap.get(2) {
                 for part in imports_str.as_str().split(',') {
@@ -1325,7 +1330,7 @@ impl PythonScopeExtractionParser {
                             alias: None,
                             kind: ImportReferenceKind::Namespace,
                             is_local: true,
-                            line: None,
+                            line: Some(line_num),
                         }, &mut seen, &mut refs);
                     } else {
                         let as_parts: Vec<&str> = as_re.splitn(trimmed, 2).collect();
@@ -1339,7 +1344,7 @@ impl PythonScopeExtractionParser {
                             alias,
                             kind: ImportReferenceKind::Named,
                             is_local: true,
-                            line: None,
+                            line: Some(line_num),
                         }, &mut seen, &mut refs);
                     }
                 }
@@ -1419,6 +1424,7 @@ impl PythonScopeExtractionParser {
                 if let Some(bound_type) = type_var_bounds.get(&r.identifier) {
                     if let Some(bound_import) = alias_map.get(bound_type) {
                         type_var_bounds_to_add.push(IdentifierReference {
+                            usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             identifier: bound_type.clone(),
                             line: r.line,
                             column: r.column,
@@ -1493,6 +1499,7 @@ impl PythonScopeExtractionParser {
                         let target = &targets[0];
                         let target_id = format!("{}::{}:{}-{}", target.file_path, target.name, target.scope_start_line, target.scope_end_line);
                         scope.identifier_references.push(IdentifierReference {
+                            usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             identifier: type_id.clone(),
                             line: scope.scope_start_line,
                             context: Some(scope.signature.clone()),
@@ -1507,6 +1514,7 @@ impl PythonScopeExtractionParser {
                 // Then check imports
                 if let Some(import_match) = import_map.get(type_id) {
                     scope.identifier_references.push(IdentifierReference {
+                        usage: Some(crate::scope_extraction::types::UsageKind::Type),
                         identifier: type_id.clone(),
                         line: scope.scope_start_line,
                         context: Some(scope.signature.clone()),
@@ -1558,6 +1566,7 @@ impl PythonScopeExtractionParser {
                             let target = &targets[0];
                             let target_id = format!("{}::{}:{}-{}", target.file_path, target.name, target.scope_start_line, target.scope_end_line);
                             scope.identifier_references.push(IdentifierReference {
+                                usage: Some(crate::scope_extraction::types::UsageKind::Type),
                                 identifier: type_id.clone(),
                                 line: *start_line,
                                 context: Some(signature.clone()),
@@ -1572,6 +1581,7 @@ impl PythonScopeExtractionParser {
                     // Then check imports
                     if let Some(import_match) = import_map.get(type_id) {
                         scope.identifier_references.push(IdentifierReference {
+                            usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             identifier: type_id.clone(),
                             line: *start_line,
                             context: Some(signature.clone()),
@@ -1630,6 +1640,7 @@ impl PythonScopeExtractionParser {
                 );
                 if !already_exists {
                     class_scope.identifier_references.push(IdentifierReference {
+                        usage: Some(crate::scope_extraction::types::UsageKind::Type),
                         identifier: type_name.clone(),
                         line: *line,
                         context: Some(context.clone()),

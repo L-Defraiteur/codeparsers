@@ -437,6 +437,7 @@ impl RustScopeExtractionParser {
         if let Some(ref tn) = trait_name {
             let base_trait_name = tn.split('<').next().unwrap_or(tn).trim().to_string();
             identifier_references.push(IdentifierReference {
+                usage: Some(crate::scope_extraction::types::UsageKind::Inheritance),
                 identifier: base_trait_name,
                 line: start_line,
                 column: Some(0),
@@ -1283,6 +1284,7 @@ fn visit_rust_type_refs(
             if !seen.contains(&key) {
                 seen.insert(key);
                 references.push(IdentifierReference {
+                    usage: Some(crate::scope_extraction::usage::usage_of(current)),
                     identifier,
                     line: current.start_position().row + 1,
                     column: Some(current.start_position().column),
@@ -1311,6 +1313,7 @@ fn visit_rust_type_refs(
                 if !seen.contains(&key) {
                     seen.insert(key);
                     references.push(IdentifierReference {
+                        usage: Some(crate::scope_extraction::usage::usage_of(*last_id)),
                         identifier,
                         line: last_id.start_position().row + 1,
                         column: Some(last_id.start_position().column),
