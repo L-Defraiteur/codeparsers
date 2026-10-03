@@ -323,6 +323,14 @@ impl RelationshipResolver {
                 self.uuid_mapping.insert(uuid, entry);
             }
         }
+
+        // Les fichiers arrivent dans l'ordre d'une HashMap, qui change à
+        // chaque exécution ; or le résolveur prend souvent le premier
+        // homonyme. Un ordre fixe (fichier, ligne) rend la résolution
+        // reproductible.
+        for candidats in self.scope_mapping.values_mut() {
+            candidats.sort_by(|a, b| (&a.file, a.start_line, a.end_line, &a.uuid).cmp(&(&b.file, b.start_line, b.end_line, &b.uuid)));
+        }
     }
 
     /// Resolve local scope references (same file).
