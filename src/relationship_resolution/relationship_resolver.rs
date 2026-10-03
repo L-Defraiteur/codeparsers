@@ -104,6 +104,9 @@ pub struct RelationshipResolver {
     uuid_mapping: UuidToScopeMapping,
     files_map: HashMap<String, FileInfo>,
     external_libraries_map: HashMap<String, ExternalLibraryInfo>,
+    /// Les noms de dossiers et de modules du projet analysé : un import
+    /// absolu dont la racine en est un n'est pas une bibliothèque.
+    project_modules: HashSet<String>,
 }
 
 impl RelationshipResolver {
@@ -115,6 +118,7 @@ impl RelationshipResolver {
             uuid_mapping: UuidToScopeMapping::default(),
             files_map: HashMap::new(),
             external_libraries_map: HashMap::new(),
+            project_modules: HashSet::new(),
         }
     }
 
@@ -175,6 +179,16 @@ impl RelationshipResolver {
 
         // Build global scope mapping
         self.build_global_scope_mapping(parsed_files);
+        self.project_modules = parsed_files
+            .keys()
+            .flat_map(|f| {
+                let rel = self.get_relative_path(f);
+                rel.split(['/', '\\'])
+                    .map(|seg| seg.split('.').next().unwrap_or(seg).to_string())
+                    .filter(|seg| !seg.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
 
         // Un FileInfo par fichier parsé — c'est ce dont un consommateur a
         // besoin pour créer les entités File (la map restait vide, 25 août 2026).
@@ -579,6 +593,13 @@ impl RelationshipResolver {
         let source_uuid = self.generate_uuid(scope, &relative_path);
 
         for imp in &import_refs {
+            // Un import externe (`use std::fmt`, `import os`) ne désigne rien
+            // du projet : le chercher par nom parmi les scopes le reliait au
+            // premier homonyme (la méthode `fmt` d'un `impl Display`).
+            let racine = imp.source.split(['.', ':', '/']).find(|s| !s.is_empty()).unwrap_or("");
+            if !imp.is_local && !self.project_modules.contains(racine) {
+                continue;
+            }
             // Find identifier references that use this import
             let used_name = imp.alias.as_deref().unwrap_or(&imp.imported);
             let matching_refs: Vec<&&crate::scope_extraction::types::IdentifierReference> = identifier_refs.iter()
@@ -774,8 +795,10 @@ impl RelationshipResolver {
         let mut relation_of_library: HashMap<String, usize> = HashMap::new();
 
         for imp in &scope.import_references {
-            // Skip local imports
-            if imp.is_local {
+            // Skip local imports — et un import absolu d'un module du projet
+            // (`from paquet.module import X` quand `paquet/` est analysé).
+            let racine = imp.source.split(['.', ':', '/']).find(|s| !s.is_empty()).unwrap_or("");
+            if imp.is_local || self.project_modules.contains(racine) {
                 continue;
             }
 

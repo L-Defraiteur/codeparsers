@@ -1330,10 +1330,10 @@ impl PythonScopeExtractionParser {
 
                     push_ref(ImportReference {
                         source: module_name.clone(),
-                        imported: module_name,
+                        imported: module_name.clone(),
                         alias,
                         kind: ImportReferenceKind::Namespace,
-                        is_local: true,
+                        is_local: module_name.starts_with('.'),
                         line: Some(line_num),
                     }, &mut seen, &mut refs);
                 }
@@ -1354,7 +1354,7 @@ impl PythonScopeExtractionParser {
                             imported: "*".to_string(),
                             alias: None,
                             kind: ImportReferenceKind::Namespace,
-                            is_local: true,
+                            is_local: source.starts_with('.'),
                             line: Some(line_num),
                         }, &mut seen, &mut refs);
                     } else {
@@ -1368,7 +1368,7 @@ impl PythonScopeExtractionParser {
                             imported,
                             alias,
                             kind: ImportReferenceKind::Named,
-                            is_local: true,
+                            is_local: source.starts_with('.'),
                             line: Some(line_num),
                         }, &mut seen, &mut refs);
                     }

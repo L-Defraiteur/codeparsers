@@ -134,7 +134,14 @@ impl RustScopeExtractionParser {
         let tree = parser.parse(content, None).expect("failed to parse");
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
 
-        let structured_imports = self.base.extract_structured_imports(content, None);
+        // Les `use`, lus sur l'AST : l'extracteur commun est celui de
+        // TypeScript (regex `import … from`) et n'en relevait aucun.
+        let tous_les_imports = extract_rust_imports(root_node, content);
+        // Seuls les imports externes changent le classement des références :
+        // un import local (`crate::`, `super::`) laisserait `Type::methode()`
+        // se résoudre vers le type importé plutôt que vers la méthode, comme
+        // le fait la résolution par nom. Les locaux restent relevés au fichier.
+        let structured_imports: Vec<ImportReference> = tous_les_imports.iter().filter(|i| !i.is_local).cloned().collect();
         let mut scopes = Vec::new();
         self.extract_scopes(root_node, &mut scopes, content, 0, None, &structured_imports, file_path);
         let file_scopes = self.base.extract_file_scopes(content, &scopes, file_path, &structured_imports);
@@ -157,7 +164,7 @@ impl RustScopeExtractionParser {
             imports,
             exports,
             dependencies,
-            import_references: structured_imports,
+            import_references: tous_les_imports,
             ast_valid,
             ast_issues,
             content_hash: None,
@@ -1355,5 +1362,115 @@ fn visit_rust_type_refs(
     let mut cursor = current.walk();
     for child in current.children(&mut cursor) {
         visit_rust_type_refs(parser, child, content, exclude, seen, references);
+    }
+}
+
+/// **Les `use` d'un fichier Rust**, à toute profondeur (modules compris).
+///
+/// Un import par nom lié : `source` est la racine du chemin (`std`, `serde`,
+/// `crate`, `self`, `super`) — la bibliothèque, pour un import externe ;
+/// `alias`, le nom lié dans le fichier (`HashSet as Ensemble` lie
+/// `Ensemble`). `imported` est le reste du chemin pour un import externe
+/// (`sync::Arc`, qu'une relation `USES_LIBRARY` garde comme symbole), le seul
+/// nom de l'élément pour un import local, que le résolveur cherche par nom.
+/// `crate`, `self` et `super` sont locaux ; tout autre racine est une crate.
+/// Un glob (`use a::*`) ne lie aucun nom : il est relevé sans alias.
+pub fn extract_rust_imports(root: SyntaxNode, content: &str) -> Vec<ImportReference> {
+    let mut out = Vec::new();
+    collect_use_declarations(root, content, &mut out);
+    out
+}
+
+fn collect_use_declarations(n: SyntaxNode, content: &str, out: &mut Vec<ImportReference>) {
+    if n.kind() == "use_declaration" {
+        if let Some(arg) = n.child_by_field_name("argument") {
+            let ligne = n.start_position().row + 1;
+            collect_use_tree(arg, &[], content, ligne, out);
+        }
+        return;
+    }
+    let mut c = n.walk();
+    for enfant in n.named_children(&mut c) {
+        collect_use_declarations(enfant, content, out);
+    }
+}
+
+fn path_segments(n: SyntaxNode, content: &str) -> Vec<String> {
+    content
+        .get(n.start_byte()..n.end_byte())
+        .unwrap_or("")
+        .split("::")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn collect_use_tree(n: SyntaxNode, prefixe: &[String], content: &str, ligne: usize, out: &mut Vec<ImportReference>) {
+    use crate::scope_extraction::types::ImportReferenceKind;
+    let pousser = |chemin: Vec<String>, alias: Option<String>, glob: bool, out: &mut Vec<ImportReference>| {
+        let Some(racine) = chemin.first().cloned() else { return };
+        let local = matches!(racine.as_str(), "crate" | "self" | "super");
+        let nom = chemin.last().cloned().unwrap_or_default();
+        let lie = if glob { None } else { Some(alias.unwrap_or_else(|| nom.clone())) };
+        let imported = if glob {
+            format!("{}::*", chemin[1..].join("::")).trim_start_matches("::").to_string()
+        } else if local {
+            nom
+        } else if chemin.len() > 1 {
+            chemin[1..].join("::")
+        } else {
+            racine.clone()
+        };
+        out.push(ImportReference {
+            source: racine,
+            imported,
+            alias: lie,
+            kind: if glob { ImportReferenceKind::Namespace } else { ImportReferenceKind::Named },
+            is_local: local,
+            line: Some(ligne),
+        });
+    };
+    match n.kind() {
+        "identifier" | "scoped_identifier" | "crate" | "self" | "super" => {
+            let mut chemin = prefixe.to_vec();
+            chemin.extend(path_segments(n, content));
+            // `use a::b::{self}` lie `b`.
+            if chemin.last().is_some_and(|d| d == "self") && chemin.len() > 1 {
+                chemin.pop();
+            }
+            pousser(chemin, None, false, out);
+        }
+        "use_as_clause" => {
+            let mut chemin = prefixe.to_vec();
+            if let Some(p) = n.child_by_field_name("path") {
+                chemin.extend(path_segments(p, content));
+            }
+            let alias = n.child_by_field_name("alias").and_then(|a| content.get(a.start_byte()..a.end_byte())).map(str::to_string);
+            pousser(chemin, alias, false, out);
+        }
+        "use_wildcard" => {
+            let mut chemin = prefixe.to_vec();
+            let mut c = n.walk();
+            for enfant in n.named_children(&mut c) {
+                chemin.extend(path_segments(enfant, content));
+            }
+            pousser(chemin, None, true, out);
+        }
+        "scoped_use_list" => {
+            let mut chemin = prefixe.to_vec();
+            if let Some(p) = n.child_by_field_name("path") {
+                chemin.extend(path_segments(p, content));
+            }
+            if let Some(liste) = n.child_by_field_name("list") {
+                collect_use_tree(liste, &chemin, content, ligne, out);
+            }
+        }
+        "use_list" => {
+            let mut c = n.walk();
+            for enfant in n.named_children(&mut c) {
+                collect_use_tree(enfant, prefixe, content, ligne, out);
+            }
+        }
+        _ => {}
     }
 }

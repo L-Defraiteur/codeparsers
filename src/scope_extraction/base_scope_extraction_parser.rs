@@ -2733,11 +2733,13 @@ impl BaseScopeExtractionParser {
                 continue;
             }
 
-            // Check if symbol appears in scope content as a whole word
+            // Check if symbol appears in scope content as a whole word — hors
+            // des commentaires et des chaînes, qui ne l'utilisent pas.
+            let code = without_comments_and_strings(&scope.content);
             let pattern = format!(r"\b{}\b", regex::escape(symbol_name));
             if let Ok(re) = regex::Regex::new(&pattern) {
-                if let Some(m) = re.find(&scope.content) {
-                    let before_match = &scope.content[..m.start()];
+                if let Some(m) = re.find(&code) {
+                    let before_match = &code[..m.start()];
                     let line_offset = before_match.matches('\n').count();
                     let col = m.start() - before_match.rfind('\n').map_or(0, |i| i + 1);
 
@@ -4315,4 +4317,53 @@ fn in_own_initializer(noeud: tree_sitter::Node, nom: &str, content: &str) -> boo
         a = p.parent();
     }
     false
+}
+
+/// Le texte, commentaires (`//`, `/* */`) et chaînes (`"…"`, `'…'`, `` `…` ``)
+/// remplacés par des espaces — longueur et retours à la ligne gardés, pour
+/// que positions et lignes restent celles du texte.
+fn without_comments_and_strings(texte: &str) -> String {
+    let c: Vec<char> = texte.chars().collect();
+    let mut out = String::with_capacity(texte.len());
+    let mut i = 0;
+    let blanc = |ch: char| if ch == '\n' { '\n' } else { ' ' };
+    while i < c.len() {
+        if c[i] == '/' && c.get(i + 1) == Some(&'/') {
+            while i < c.len() && c[i] != '\n' {
+                out.push(' ');
+                i += 1;
+            }
+        } else if c[i] == '/' && c.get(i + 1) == Some(&'*') {
+            out.push_str("  ");
+            i += 2;
+            while i < c.len() && !(c[i] == '*' && c.get(i + 1) == Some(&'/')) {
+                out.push(blanc(c[i]));
+                i += 1;
+            }
+            if i < c.len() {
+                out.push_str("  ");
+                i += 2;
+            }
+        } else if c[i] == '"' || c[i] == '`' || (c[i] == '\'' && c.get(i + 2) == Some(&'\'')) {
+            let fin = c[i];
+            out.push(' ');
+            i += 1;
+            while i < c.len() && c[i] != fin {
+                if c[i] == '\\' && i + 1 < c.len() {
+                    out.push(' ');
+                    i += 1;
+                }
+                out.push(blanc(c[i]));
+                i += 1;
+            }
+            if i < c.len() {
+                out.push(' ');
+                i += 1;
+            }
+        } else {
+            out.push(c[i]);
+            i += 1;
+        }
+    }
+    out
 }

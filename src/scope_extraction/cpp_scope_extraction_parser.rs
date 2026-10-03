@@ -142,12 +142,15 @@ impl CppScopeExtractionParser {
         let tree = parser.parse(content, None).expect("failed to parse");
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
 
-        let structured_imports = self.base.extract_structured_imports(content, None);
+        // Les `#include`, lus sur l'AST : l'extracteur commun est celui de
+        // TypeScript et n'en relevait aucun.
+        let structured_imports = extract_cpp_includes(root_node, content);
         let mut scopes = Vec::new();
         self.extract_scopes(root_node, &mut scopes, content, 0, None, &structured_imports, file_path);
         let file_scopes = self.base.extract_file_scopes(content, &scopes, file_path, &structured_imports);
         scopes.extend(file_scopes);
         scopes.sort_by_key(|s| s.scope_start_line);
+        attach_includes_to_scopes(&mut scopes, &structured_imports);
         let scope_index = self.base.classify_scope_references(&mut scopes, &structured_imports);
         self.base.attach_signature_references(&mut scopes, &scope_index, &structured_imports);
 
@@ -1149,6 +1152,57 @@ impl CppScopeExtractionParser {
                 .or_else(|| self.base.extract_block_doc(node, content)),
             decorators: None,
             value: None,
+        }
+    }
+}
+
+/// **Les `#include` d'un fichier C ou C++.** `source` est le chemin de
+/// l'en-tête tel qu'écrit ; `<…>` (système ou bibliothèque) est externe,
+/// `"…"` (le projet) est local.
+pub fn extract_cpp_includes(root: SyntaxNode, content: &str) -> Vec<ImportReference> {
+    let mut out = Vec::new();
+    collect_includes(root, content, &mut out);
+    out
+}
+
+fn collect_includes(n: SyntaxNode, content: &str, out: &mut Vec<ImportReference>) {
+    if n.kind() == "preproc_include" {
+        if let Some(p) = n.child_by_field_name("path") {
+            let brut = content.get(p.start_byte()..p.end_byte()).unwrap_or("").trim();
+            let local = brut.starts_with('"');
+            let chemin = brut.trim_matches(|c| c == '"' || c == '<' || c == '>').to_string();
+            if !chemin.is_empty() {
+                out.push(ImportReference {
+                    source: chemin.clone(),
+                    imported: chemin,
+                    alias: None,
+                    kind: crate::scope_extraction::types::ImportReferenceKind::SideEffect,
+                    is_local: local,
+                    line: Some(n.start_position().row + 1),
+                });
+            }
+        }
+        return;
+    }
+    let mut c = n.walk();
+    for enfant in n.named_children(&mut c) {
+        collect_includes(enfant, content, out);
+    }
+}
+
+/// Un include ne nomme aucun identifiant : il appartient au scope dont les
+/// lignes le contiennent (le plus étroit), d'où partira son `USES_LIBRARY`.
+pub fn attach_includes_to_scopes(scopes: &mut [ScopeInfo], includes: &[ImportReference]) {
+    for inc in includes {
+        let Some(l) = inc.line else { continue };
+        let cible = scopes
+            .iter_mut()
+            .filter(|s| s.scope_start_line <= l && l <= s.scope_end_line)
+            .min_by_key(|s| s.scope_end_line - s.scope_start_line);
+        if let Some(s) = cible {
+            if !s.import_references.iter().any(|i| i.source == inc.source) {
+                s.import_references.push(inc.clone());
+            }
         }
     }
 }
