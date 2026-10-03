@@ -23,6 +23,11 @@ const PROJET: &[(&str, &str)] = &[
     ("a.rs", "pub fn helper() -> u32 {\n    1\n}\n\npub struct Node;\n\nimpl Node {\n    pub fn go(&self) -> u32 {\n        local()\n    }\n}\n\nfn local() -> u32 {\n    helper()\n}\n"),
     ("b.rs", "pub fn helper() -> u32 {\n    2\n}\n\npub trait Shape {\n    fn area(&self) -> f64;\n}\n"),
     ("run.rs", "use crate::a::Node;\n\nfn run() -> u32 {\n    let n: Node = Node;\n    helper() + n.go()\n}\n\nstruct Square;\n\nimpl Shape for Square {\n    fn area(&self) -> f64 {\n        1.0\n    }\n}\n"),
+    // Le champ est déclaré dans un fichier, lu dans un autre : son type ne
+    // doit pas changer la résolution selon que la déclaration est dans le
+    // paquet ou non.
+    ("store.rs", "pub struct Store {\n    inner: Inner,\n}\n"),
+    ("store_impl.rs", "pub struct Inner;\n\nimpl Inner {\n    pub fn get(&self) -> u32 {\n        1\n    }\n}\n\npub struct Other;\n\nimpl Other {\n    pub fn get(&self) -> u32 {\n        2\n    }\n}\n\nimpl Store {\n    pub fn read(&self) -> u32 {\n        self.inner.get()\n    }\n}\n"),
     ("pkg/models.py", "class Base:\n    def save(self):\n        return 1\n\n\ndef make():\n    return Base()\n"),
     ("main.py", "from pkg.models import Base, make\nimport requests\n\n\nclass User(Base):\n    def load(self):\n        requests.get(\"u\")\n        return make()\n"),
 ];
@@ -97,7 +102,12 @@ fn fichier_seul_garde_tout_ce_qui_reste_dans_le_fichier() {
         .filter(|r| r.r#type != RelationshipType::USESLIBRARY && r.from_file == r.to_file)
         .map(cle)
         .collect();
-    assert_eq!(seul, avant);
+    // Ce que « fichier seul » ne pose plus dans un fichier : seulement ce
+    // qu'une déclaration d'un autre fichier décidait (le type du champ
+    // `inner`, déclaré dans store.rs).
+    assert!(seul.is_subset(&avant), "{:#?}", seul.difference(&avant).collect::<Vec<_>>());
+    let perdu: Vec<&String> = avant.difference(&seul).collect();
+    assert!(perdu.iter().all(|k| k.contains("store_impl.rs:") && k.contains(":get")), "{perdu:#?}");
     // Le même fichier se résout toujours : `local` appelle `helper` de a.rs,
     // pas celui de b.rs.
     assert!(seul.iter().any(|k| k.starts_with("CONSUMES a.rs:local → a.rs:helper")), "{seul:#?}");
@@ -114,4 +124,36 @@ fn un_module_du_projet_n_est_pas_une_bibliotheque_d_un_autre_paquet() {
         .collect();
     assert!(libs.iter().any(|l| l == "requests"), "{libs:?}");
     assert!(!libs.iter().any(|l| l.starts_with("pkg")), "pkg.models est dans le projet : {libs:?}");
+}
+
+/// Un dossier du projet qui s'appelle `std`, `string` ou `node` ne fait pas
+/// de la bibliothèque du même nom un module du projet : en Rust, `crate`,
+/// `self` et `super` disent seuls ce qui est local, en C et C++ la forme de
+/// l'`#include`. La liste des modules ne sert qu'à Python, où un import
+/// absolu peut viser le projet.
+#[test]
+fn un_dossier_du_projet_ne_cache_pas_une_bibliotheque() {
+    let source = "use std::fmt;\n\npub fn f(x: &dyn fmt::Debug) -> String {\n    format!(\"{x:?}\")\n}\n";
+    let contenus = HashMap::from([("/virtual/lib.rs".to_string(), source.to_string())]);
+    let libs: Vec<String> = ProjectParser::new(ProjectParserOptions { verbose: false })
+        .parse_project(ParseProjectOptions {
+            root: "/virtual".to_string(),
+            files: vec!["/virtual/lib.rs".to_string()],
+            content_map: Some(contenus),
+            resolve_relationships: Some(true),
+            resolver_options: Some(RelationshipResolverOptions {
+                include_file_level_refs: Some(false),
+                include_child_refs: Some(false),
+                resolve_cross_file: Some(false),
+                project_files: Some(vec!["/virtual/lib.rs".into(), "/virtual/vendor/std/mod.py".into()]),
+                ..Default::default()
+            }),
+        })
+        .relationships
+        .map_or_else(Vec::new, |r| r.relationships)
+        .into_iter()
+        .filter(|r| r.r#type == RelationshipType::USESLIBRARY)
+        .map(|r| r.to_name)
+        .collect();
+    assert!(libs.iter().any(|l| l == "std"), "{libs:?}");
 }

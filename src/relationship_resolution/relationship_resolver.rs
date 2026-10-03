@@ -110,6 +110,9 @@ pub struct RelationshipResolver {
     /// (type, champ) → type déclaré du champ ; `None` si deux déclarations
     /// se contredisent.
     field_types: HashMap<(String, String), Option<String>>,
+    /// Les mêmes, fichier par fichier — « fichier seul » ne lit que celles du
+    /// fichier de la référence : `(fichier, type, champ)`.
+    field_types_local: HashMap<(String, String, String), Option<String>>,
     /// uuid d'une fonction → (type de retour tel qu'écrit, parent).
     return_types: HashMap<String, (String, Option<String>)>,
 }
@@ -125,6 +128,7 @@ impl RelationshipResolver {
             external_libraries_map: HashMap::new(),
             project_modules: HashSet::new(),
             field_types: HashMap::new(),
+            field_types_local: HashMap::new(),
             return_types: HashMap::new(),
         }
     }
@@ -323,6 +327,15 @@ impl RelationshipResolver {
         }
     }
 
+    /// Un import absolu vise-t-il un module du projet ? Seulement en Python,
+    /// où `from paquet.module import X` peut désigner le projet. Ailleurs,
+    /// la forme de l'import le dit seule (`crate::`, `self::`, `super::` en
+    /// Rust ; `"…"` contre `<…>` en C et C++ ; `./` en JS) : un dossier du
+    /// dépôt nommé `std`, `string` ou `node` ne cache pas la bibliothèque.
+    fn module_du_projet(&self, file_path: &str, racine: &str) -> bool {
+        file_path.ends_with(".py") && self.project_modules.contains(racine)
+    }
+
     /// Les liens entre fichiers sont-ils résolus ici ? Faux : « fichier
     /// seul », et rien de ce que rend le résolveur ne dépend plus des autres
     /// fichiers du paquet — ni les cibles, ni les qualificatifs connus, ni
@@ -336,6 +349,7 @@ impl RelationshipResolver {
         self.scope_mapping.clear();
         self.uuid_mapping.clear();
         self.field_types.clear();
+        self.field_types_local.clear();
         self.return_types.clear();
 
         for (file_path, analysis) in parsed_files {
@@ -369,15 +383,9 @@ impl RelationshipResolver {
                     }
                     let Some(t) = m.r#type.as_deref().and_then(crate::scope_extraction::usage::base_type_name) else { continue };
                     let cle = (scope.name.clone(), m.name.clone());
-                    match self.field_types.get(&cle) {
-                        Some(Some(ancien)) if *ancien != t => {
-                            self.field_types.insert(cle, None);
-                        }
-                        Some(_) => {}
-                        None => {
-                            self.field_types.insert(cle, Some(t));
-                        }
-                    }
+                    let cle_locale = (relative_path.clone(), scope.name.clone(), m.name.clone());
+                    noter_type_de_champ(&mut self.field_types, cle, &t);
+                    noter_type_de_champ(&mut self.field_types_local, cle_locale, &t);
                 }
                 if let Some(rt) = scope.return_type.as_ref().filter(|t| !t.trim().is_empty()) {
                     self.return_types.insert(uuid.clone(), (rt.clone(), scope.parent.clone()));
@@ -667,7 +675,7 @@ impl RelationshipResolver {
             // du projet : le chercher par nom parmi les scopes le reliait au
             // premier homonyme (la méthode `fmt` d'un `impl Display`).
             let racine = imp.source.split(['.', ':', '/']).find(|s| !s.is_empty()).unwrap_or("");
-            if !imp.is_local && !self.project_modules.contains(racine) {
+            if !imp.is_local && !self.module_du_projet(file_path, racine) {
                 continue;
             }
             // Find identifier references that use this import
@@ -880,7 +888,7 @@ impl RelationshipResolver {
             // Skip local imports — et un import absolu d'un module du projet
             // (`from paquet.module import X` quand `paquet/` est analysé).
             let racine = imp.source.split(['.', ':', '/']).find(|s| !s.is_empty()).unwrap_or("");
-            if imp.is_local || self.project_modules.contains(racine) {
+            if imp.is_local || self.module_du_projet(file_path, racine) {
                 continue;
             }
 
@@ -930,12 +938,13 @@ impl RelationshipResolver {
         }
         match r.qualifier_deferred.as_ref()? {
             DeferredType::FieldOf { owner, field } => {
-                // « Fichier seul » : le type propriétaire doit être déclaré
-                // dans ce fichier — sa déclaration ailleurs dépend du paquet.
-                if !self.cross_file() && !self.scope_mapping.get(owner).is_some_and(|c| c.iter().any(|e| e.file == relative_path)) {
-                    return None;
+                // « Fichier seul » : le champ doit être déclaré dans ce
+                // fichier — sa déclaration ailleurs dépend du paquet.
+                if self.cross_file() {
+                    self.field_types.get(&(owner.clone(), field.clone())).cloned().flatten()
+                } else {
+                    self.field_types_local.get(&(relative_path.to_string(), owner.clone(), field.clone())).cloned().flatten()
                 }
-                self.field_types.get(&(owner.clone(), field.clone())).cloned().flatten()
             }
             DeferredType::ReturnOf { function, unwrap } => {
                 let fonctions: Vec<&ScopeMappingEntry> = self
@@ -1411,4 +1420,18 @@ fn first_generic_argument(texte: &str, enveloppes: &[&str]) -> Option<String> {
         }
     }
     None
+}
+
+/// Le type déclaré d'un champ ; deux déclarations de types différents : on
+/// ne devine pas (`None`).
+fn noter_type_de_champ<K: std::hash::Hash + Eq>(table: &mut HashMap<K, Option<String>>, k: K, t: &str) {
+    match table.get(&k) {
+        Some(Some(ancien)) if ancien != t => {
+            table.insert(k, None);
+        }
+        Some(_) => {}
+        None => {
+            table.insert(k, Some(t.to_string()));
+        }
+    }
 }
