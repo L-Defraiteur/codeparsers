@@ -1403,7 +1403,46 @@ fn visit_rust_type_refs(
 pub fn extract_rust_imports(root: SyntaxNode, content: &str) -> Vec<ImportReference> {
     let mut out = Vec::new();
     collect_use_declarations(root, content, &mut out);
+    // Rust 2018 : un `use` peut partir d'un nom en portée — un `mod x;` du
+    // fichier, un item (`use Kind::*`), un nom lié par un `use` interne.
+    // Ce n'est pas une crate externe. Point fixe : `use super::a;` rend
+    // interne le `use a::B;` qui suit.
+    let mut internes: std::collections::HashSet<String> = std::collections::HashSet::new();
+    collect_item_names(root, content, &mut internes);
+    loop {
+        let mut change = false;
+        for imp in out.iter_mut() {
+            if !imp.is_local && internes.contains(&imp.source) {
+                imp.is_local = true;
+                change = true;
+            }
+            if imp.is_local {
+                if let Some(lie) = imp.alias.clone() {
+                    change |= internes.insert(lie);
+                }
+            }
+        }
+        if !change {
+            break;
+        }
+    }
     out
+}
+
+/// Les noms des items déclarés dans le fichier, à toute profondeur.
+fn collect_item_names(n: SyntaxNode, content: &str, out: &mut std::collections::HashSet<String>) {
+    if matches!(
+        n.kind(),
+        "mod_item" | "struct_item" | "enum_item" | "trait_item" | "function_item" | "type_item" | "const_item" | "static_item" | "union_item" | "macro_definition"
+    ) {
+        if let Some(nom) = n.child_by_field_name("name").and_then(|x| content.get(x.start_byte()..x.end_byte())) {
+            out.insert(nom.to_string());
+        }
+    }
+    let mut c = n.walk();
+    for enfant in n.named_children(&mut c) {
+        collect_item_names(enfant, content, out);
+    }
 }
 
 fn collect_use_declarations(n: SyntaxNode, content: &str, out: &mut Vec<ImportReference>) {
