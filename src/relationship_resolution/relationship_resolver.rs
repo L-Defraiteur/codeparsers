@@ -1401,7 +1401,7 @@ fn merge_by_target(rels: Vec<ResolvedRelationship>) -> Vec<ResolvedRelationship>
 
 /// `Result<Store, String>` → `Store` quand l'enveloppe est l'une de
 /// `enveloppes` (le `?` d'un appel déballe un `Result` ou une `Option`).
-fn first_generic_argument(texte: &str, enveloppes: &[&str]) -> Option<String> {
+pub(crate) fn first_generic_argument(texte: &str, enveloppes: &[&str]) -> Option<String> {
     let t = texte.trim().trim_start_matches("->").trim_start_matches(':').trim();
     let ouverture = t.find('<')?;
     let nom = t[..ouverture].rsplit("::").next().unwrap_or("").trim();
