@@ -19,7 +19,13 @@ tree-sitter-rust = "0.23"
 tree-sitter-go = "0.23"
 tree-sitter-c = "0.23"
 tree-sitter-cpp = "0.23"
-tree-sitter-c-sharp = "0.23"
+# **Épinglée, et provisoirement.** 0.23.5, une version de correctif, est
+# compilée en ABI 15 : tree-sitter 0.24 la refuse, et l'analyse de tout `.cs`
+# panique. codeparsers verrouillait 0.23.1, mais rag3weaver résout par son
+# propre `Cargo.lock` et prenait 0.23.5 (3 octobre 2026). Le `=` force la même
+# version partout ; `tests/grammaires.rs` le vérifie. La vraie sortie est un
+# tree-sitter qui lit l'ABI 15.
+tree-sitter-c-sharp = "=0.23.1"
 # **La grammaire bash, pour décider — pas pour indexer.**
 #
 # Elle sert à `shell::decomposer`, qui réduit une ligne de commande en argv
