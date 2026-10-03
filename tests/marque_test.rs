@@ -154,3 +154,27 @@ fn go_la_signature_et_le_fichier_disent_le_test() {
     let ailleurs = scopes("calc.go", "package calc\n\nfunc TestLike() {}\n");
     pas_un_test(&ailleurs, "TestLike");
 }
+
+// ---------------------------------------------------------------------------
+// TypeScript / JavaScript
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ts_describe_et_it_deviennent_des_scopes_de_test() {
+    let src = "import { add } from \"./calc\";\ndescribe(\"calc\", () => {\n  it(\"adds\", () => {\n    expect(add(1, 2)).toBe(3);\n  });\n  test(\"subs\", () => {});\n});\n";
+    let s = scopes("calc.test.ts", src);
+    let tests: Vec<_> = s.iter().filter_map(|x| x.test.as_ref().map(|t| (t.role.clone(), t.name.clone()))).collect();
+    assert!(tests.contains(&(TestRole::Suite, Some("calc".to_string()))), "{tests:?}");
+    assert!(tests.contains(&(TestRole::Case, Some("calc > adds".to_string()))), "{tests:?}");
+    assert!(tests.contains(&(TestRole::Case, Some("calc > subs".to_string()))), "{tests:?}");
+    let adds = s.iter().find(|x| x.name == "adds").expect("le scope du test");
+    assert_eq!((adds.scope_start_line, adds.scope_end_line, adds.parent.as_deref()), (3, 5, Some("calc")));
+    assert!(adds.identifier_references.iter().any(|r| r.identifier == "add"), "le test référence add");
+}
+
+#[test]
+fn ts_un_appel_ordinaire_ne_devient_pas_un_scope() {
+    let s = scopes("app.ts", "function run(f: () => void) { f(); }\nrun(() => {});\nlog(\"x\", () => {});\n");
+    assert!(s.iter().all(|x| x.test.is_none()), "{:?}", s.iter().map(|x| &x.name).collect::<Vec<_>>());
+    assert!(!s.iter().any(|x| x.name == "x"));
+}

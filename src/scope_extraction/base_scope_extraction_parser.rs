@@ -1,4 +1,5 @@
 use crate::cached_regex;
+use crate::scope_extraction::types::{TestCertainty, TestMark, TestRole};
 use crate::scope_extraction::types::IdentifierReference;
 use crate::scope_extraction::types::ImportReference;
 use crate::scope_extraction::types::ParameterInfo;
@@ -339,6 +340,40 @@ impl BaseScopeExtractionParser {
     /// Extract scopes from AST node with hierarchy
 
     pub fn extract_scopes(&self, node: SyntaxNode, scopes: &mut Vec<ScopeInfo>, content: &str, depth: usize, parent: Option<String>, file_imports: &[ImportReference], file_path: &str) {
+        // **Un bloc de test est un scope** : `describe("calc", () => { … })`,
+        // `it("adds", …)`, `test(…)` sont des appels, pas des déclarations ;
+        // sans scope, un fichier de tests était une seule zone hors scope et
+        // aucun test ne se laissait nommer (3 octobre 2026).
+        if matches!(self.language, SupportedLanguage::Typescript | SupportedLanguage::Javascript) && node.kind() == "call_expression" {
+            if let Some((fonction, titre, rappel)) = self.test_block(node, content) {
+                let role = if matches!(fonction.as_str(), "describe" | "context" | "suite") { TestRole::Suite } else { TestRole::Case };
+                let prefixe = parent
+                    .as_ref()
+                    .and_then(|p| scopes.iter().rev().find(|s| &s.name == p && s.test.is_some()))
+                    .and_then(|s| s.test.as_ref().and_then(|t| t.name.clone()));
+                let chemin = match prefixe {
+                    Some(p) => format!("{p} > {titre}"),
+                    None => titre.clone(),
+                };
+                let mut scope = self.extract_function(rappel, content, depth, parent.clone(), file_imports);
+                scope.name = titre.clone();
+                scope.file_path = file_path.to_string();
+                scope.scope_start_line = node.start_position().row + 1;
+                scope.signature_start_line = scope.scope_start_line;
+                scope.scope_end_line = node.end_position().row + 1;
+                scope.signature = self.get_node_text(Some(node), content).lines().next().unwrap_or("").trim().to_string();
+                scope.exports = Vec::new();
+                scope.test = Some(TestMark { role, certainty: TestCertainty::Certain, marker: fonction, name: Some(chemin) });
+                scopes.push(scope);
+                if let Some(corps) = rappel.child_by_field_name("body") {
+                    let mut cursor = corps.walk();
+                    for child in corps.children(&mut cursor) {
+                        self.extract_scopes(child, scopes, content, depth + 1, Some(titre.clone()), file_imports, file_path);
+                    }
+                }
+                return;
+            }
+        }
         if self.is_node_type(node, "classDeclaration") {
             let mut scope = self.extract_class(node, content, depth, parent, file_imports);
             scope.file_path = file_path.to_string();
@@ -2343,6 +2378,39 @@ impl BaseScopeExtractionParser {
         for child in current.children(&mut cursor) {
             self.extract_identifier_references_visit(child, content, exclude, references);
         }
+    }
+
+    /// `describe` / `it` / `test` (et `context`, `suite`, `specify`, leurs
+    /// `.only` / `.skip`) appelés avec un titre littéral et une fonction :
+    /// (fonction, titre, fonction de rappel).
+    fn test_block(&self, appel: SyntaxNode, content: &str) -> Option<(String, String, SyntaxNode)> {
+        let f = appel.child_by_field_name("function")?;
+        let base = match f.kind() {
+            "identifier" => f,
+            "member_expression" => {
+                let objet = f.child_by_field_name("object")?;
+                let propriete = self.get_node_text(f.child_by_field_name("property"), content);
+                if objet.kind() != "identifier" || !matches!(propriete.as_str(), "only" | "skip") {
+                    return None;
+                }
+                objet
+            }
+            _ => return None,
+        };
+        let nom = self.get_node_text(Some(base), content);
+        if !matches!(nom.as_str(), "describe" | "context" | "suite" | "it" | "test" | "specify") {
+            return None;
+        }
+        let args = appel.child_by_field_name("arguments")?;
+        let mut cursor = args.walk();
+        let nommes: Vec<SyntaxNode> = args.named_children(&mut cursor).collect();
+        let (titre, rappel) = (nommes.first()?, nommes.get(1)?);
+        if !matches!(titre.kind(), "string" | "template_string") || !matches!(rappel.kind(), "arrow_function" | "function_expression" | "function") {
+            return None;
+        }
+        let texte = self.get_node_text(Some(*titre), content);
+        let texte = texte.trim_matches(|c| c == '"' || c == '\'' || c == '`').to_string();
+        Some((nom, texte, *rappel))
     }
 
     /// Check if an identifier node is a definition (not a reference)
