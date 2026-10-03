@@ -1068,7 +1068,17 @@ impl PythonScopeExtractionParser {
 
     fn extract_identifier_references(&self, node: SyntaxNode, content: &str, exclude: HashSet<String>) -> Vec<IdentifierReference> {
         let mut references: HashMap<String, IdentifierReference> = HashMap::new();
+        let types = crate::scope_extraction::usage::typed_bindings(node, content);
+        let mut exclude = exclude;
+        for nom in types.keys() {
+            exclude.insert(super::base_scope_extraction_parser::typed_binding(nom));
+        }
         self.visit_identifier_references(node, content, &exclude, &mut references);
+        for r in references.values_mut() {
+            if let Some(t) = r.qualifier.as_deref().and_then(|q| types.get(q)) {
+                r.qualifier_type = Some(t.clone());
+            }
+        }
         references.into_values().collect()
     }
 
@@ -1086,8 +1096,13 @@ impl PythonScopeExtractionParser {
             self.handle_attribute(node, content, exclude, references);
         }
 
-        // Handle plain identifiers
-        if node.kind() == "identifier" && !self.is_definition_identifier(node) {
+        // Handle plain identifiers — sauf l'attribut d'un `a.b`, que
+        // `handle_attribute` relève avec son qualificatif : relevé une seconde
+        // fois sans lui, il se résolvait au premier homonyme venu.
+        let attribut = node.parent().is_some_and(|p| {
+            p.kind() == "attribute" && p.child_by_field_name("attribute").is_some_and(|a| a.id() == node.id())
+        });
+        if node.kind() == "identifier" && !attribut && !self.is_definition_identifier(node) {
             let identifier = self.get_node_text(Some(node), content);
             if !identifier.is_empty()
                 && !exclude.contains(&identifier)
@@ -1098,6 +1113,7 @@ impl PythonScopeExtractionParser {
                 if !references.contains_key(&key) {
                     references.insert(key, IdentifierReference {
                         usage: Some(crate::scope_extraction::usage::usage_of(node)),
+                        qualifier_type: None,
                         identifier,
                         line: node.start_position().row + 1,
                         column: Some(node.start_position().column),
@@ -1130,6 +1146,7 @@ impl PythonScopeExtractionParser {
                 if !references.contains_key(&key) {
                     references.insert(key, IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Call),
+                        qualifier_type: None,
                         identifier: name,
                         line: function_node.start_position().row + 1,
                         column: Some(function_node.start_position().column),
@@ -1159,9 +1176,11 @@ impl PythonScopeExtractionParser {
                 && !IDENTIFIER_STOP_WORDS.contains(&attribute.as_str())
                 && !BUILTIN_IDENTIFIERS.contains(&attribute.as_str())
             {
-                // Skip if qualifier is in exclusions (e.g., self.foo)
+                // Skip if qualifier is in exclusions, sauf `self`/`cls` (le
+                // résolveur les connaît) et une variable dont le type se lit.
                 if let Some(ref q) = qualifier {
-                    if exclude.contains(q) {
+                    let instance = q == "self" || q == "cls";
+                    if !instance && exclude.contains(q) && !exclude.contains(&super::base_scope_extraction_parser::typed_binding(q)) {
                         return;
                     }
                 }
@@ -1171,6 +1190,7 @@ impl PythonScopeExtractionParser {
                 if !references.contains_key(&key) {
                     references.insert(key, IdentifierReference {
                         usage: Some(crate::scope_extraction::usage::usage_of(attr_node)),
+                        qualifier_type: None,
                         identifier: attribute,
                         line: attr_node.start_position().row + 1,
                         column: Some(attr_node.start_position().column),
@@ -1425,6 +1445,7 @@ impl PythonScopeExtractionParser {
                     if let Some(bound_import) = alias_map.get(bound_type) {
                         type_var_bounds_to_add.push(IdentifierReference {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
+                            qualifier_type: None,
                             identifier: bound_type.clone(),
                             line: r.line,
                             column: r.column,
@@ -1500,6 +1521,7 @@ impl PythonScopeExtractionParser {
                         let target_id = format!("{}::{}:{}-{}", target.file_path, target.name, target.scope_start_line, target.scope_end_line);
                         scope.identifier_references.push(IdentifierReference {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
+                            qualifier_type: None,
                             identifier: type_id.clone(),
                             line: scope.scope_start_line,
                             context: Some(scope.signature.clone()),
@@ -1515,6 +1537,7 @@ impl PythonScopeExtractionParser {
                 if let Some(import_match) = import_map.get(type_id) {
                     scope.identifier_references.push(IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Type),
+                        qualifier_type: None,
                         identifier: type_id.clone(),
                         line: scope.scope_start_line,
                         context: Some(scope.signature.clone()),
@@ -1567,6 +1590,7 @@ impl PythonScopeExtractionParser {
                             let target_id = format!("{}::{}:{}-{}", target.file_path, target.name, target.scope_start_line, target.scope_end_line);
                             scope.identifier_references.push(IdentifierReference {
                                 usage: Some(crate::scope_extraction::types::UsageKind::Type),
+                                qualifier_type: None,
                                 identifier: type_id.clone(),
                                 line: *start_line,
                                 context: Some(signature.clone()),
@@ -1582,6 +1606,7 @@ impl PythonScopeExtractionParser {
                     if let Some(import_match) = import_map.get(type_id) {
                         scope.identifier_references.push(IdentifierReference {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
+                            qualifier_type: None,
                             identifier: type_id.clone(),
                             line: *start_line,
                             context: Some(signature.clone()),
@@ -1641,6 +1666,7 @@ impl PythonScopeExtractionParser {
                 if !already_exists {
                     class_scope.identifier_references.push(IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Type),
+                        qualifier_type: None,
                         identifier: type_name.clone(),
                         line: *line,
                         context: Some(context.clone()),

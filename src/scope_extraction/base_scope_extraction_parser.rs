@@ -2157,7 +2157,8 @@ impl BaseScopeExtractionParser {
         // homonyme d'une méthode du fichier passait pour un appel à celle-ci
         // (`let count = data.len();`, port.rs, 3 octobre 2026).
         let motif = match kind {
-            "let_declaration" | "for_expression" => current.child_by_field_name("pattern"),
+            "let_declaration" | "for_expression" | "match_arm" | "let_condition" => current.child_by_field_name("pattern"),
+            "closure_expression" => current.child_by_field_name("parameters"),
             "short_var_declaration" => current.child_by_field_name("left"),
             _ => None,
         };
@@ -2193,7 +2194,20 @@ impl BaseScopeExtractionParser {
 
     pub fn extract_identifier_references(&self, node: SyntaxNode, content: &str, exclude: HashSet<String>) -> Vec<IdentifierReference> {
         let mut references = indexmap::IndexMap::<String, IdentifierReference>::new();
+        // Les variables dont le type se lit : leur accès qualifié reste une
+        // référence (même quand la variable est un paramètre exclu), et
+        // porte le type.
+        let types = crate::scope_extraction::usage::typed_bindings(node, content);
+        let mut exclude = exclude;
+        for nom in types.keys() {
+            exclude.insert(typed_binding(nom));
+        }
         self.extract_identifier_references_visit(node, content, &exclude, &mut references);
+        for r in references.values_mut() {
+            if let Some(t) = r.qualifier.as_deref().and_then(|q| types.get(q)) {
+                r.qualifier_type = Some(t.clone());
+            }
+        }
         references.into_values().collect()
     }
 
@@ -2220,6 +2234,7 @@ impl BaseScopeExtractionParser {
                     let key = format!("{}:{}:{}:jsx", identifier, row, col);
                     references.entry(key).or_insert_with(|| IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Call),
+                        qualifier_type: None,
                         identifier,
                         line: row + 1,
                         column: Some(col),
@@ -2289,7 +2304,7 @@ impl BaseScopeExtractionParser {
                     // they appear in the exclude set (e.g. self is a parameter name)
                     let is_instance_kw = q == "this"
                         || (q == "self" && matches!(self.language, SupportedLanguage::Python | SupportedLanguage::Rust));
-                    if !is_instance_kw && exclude.contains(q) {
+                    if !is_instance_kw && exclude.contains(q) && !exclude.contains(&typed_binding(q)) {
                         return;
                     }
                 }
@@ -2300,6 +2315,7 @@ impl BaseScopeExtractionParser {
                 let key = format!("{}:{}:{}:{}", identifier, row, col, q_str);
                 references.entry(key).or_insert_with(|| IdentifierReference {
                     usage: Some(crate::scope_extraction::usage::usage_of(current)),
+                    qualifier_type: None,
                     identifier,
                     line: row + 1,
                     column: Some(col),
@@ -2650,6 +2666,7 @@ impl BaseScopeExtractionParser {
 
                     scope.identifier_references.push(IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Other),
+                        qualifier_type: None,
                         identifier: symbol_name.to_string(),
                         line: scope.scope_start_line + line_offset,
                         column: Some(col),
@@ -2702,6 +2719,7 @@ impl BaseScopeExtractionParser {
                             target.file_path, target.name, target.scope_start_line, target.scope_end_line);
                         scope.identifier_references.push(IdentifierReference {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
+                            qualifier_type: None,
                             identifier: type_id,
                             line: scope.scope_start_line,
                             column: None,
@@ -2720,6 +2738,7 @@ impl BaseScopeExtractionParser {
                 if let Some(import_match) = import_map.get(&type_id) {
                     scope.identifier_references.push(IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Type),
+                        qualifier_type: None,
                         identifier: type_id,
                         line: scope.scope_start_line,
                         column: None,
@@ -2765,6 +2784,7 @@ impl BaseScopeExtractionParser {
                                 target.file_path, target.name, target.scope_start_line, target.scope_end_line);
                             scope.identifier_references.push(IdentifierReference {
                                 usage: Some(crate::scope_extraction::types::UsageKind::Type),
+                                qualifier_type: None,
                                 identifier: type_id.clone(),
                                 line: scope.scope_start_line,
                                 column: None,
@@ -2782,6 +2802,7 @@ impl BaseScopeExtractionParser {
                     if let Some(import_match) = import_map.get(type_id) {
                         scope.identifier_references.push(IdentifierReference {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
+                            qualifier_type: None,
                             identifier: type_id.clone(),
                             line: scope.scope_start_line,
                             column: None,
@@ -2845,6 +2866,7 @@ impl BaseScopeExtractionParser {
                 if !already {
                     class_scope.identifier_references.push(IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Type),
+                        qualifier_type: None,
                         identifier: type_name,
                         line: ref_info.line,
                         column: None,
@@ -3400,6 +3422,7 @@ impl BaseScopeExtractionParser {
 
                 references.push(IdentifierReference {
                     usage: Some(crate::scope_extraction::usage::usage_of_line(line)),
+                    qualifier_type: None,
                     identifier,
                     line: base + line_index,
                     column: Some(m.get(1).unwrap().start()),
@@ -4180,6 +4203,12 @@ fn leading_blank_lines(texte: &str) -> usize {
 /// est exclu (paramètres, définitions locales).
 pub fn local_binding(nom: &str) -> String {
     format!("\u{1}let:{nom}")
+}
+
+/// La clé qui dit qu'une variable a un type lisible : son accès qualifié
+/// (`n.run()`) reste une référence même si `n` est exclu comme paramètre.
+pub fn typed_binding(nom: &str) -> String {
+    format!("\u{1}type:{nom}")
 }
 
 /// Vrai si `noeud` est dans l'initialiseur d'un `let` (ou d'un `:=`) qui lie

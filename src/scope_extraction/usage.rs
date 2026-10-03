@@ -182,3 +182,149 @@ pub fn usage_of_line(ligne: &str) -> UsageKind {
         .any(|p| l.starts_with(p));
     if import { UsageKind::Import } else { UsageKind::Other }
 }
+
+/// **Le type des variables d'un scope, quand il se lit sans inférence.**
+///
+/// Trois sources seulement : (a) l'annotation d'une variable, (b) le type
+/// d'un paramètre, (c) un initialiseur constructeur — littéral de struct
+/// (`Node { … }`), fonction associée d'un type (`Node::new(…)`), `new Node()`,
+/// ou appel d'une classe en Python (`Node()`). Aucune inférence à travers un
+/// appel : `let n = make();` ne dit rien. Un nom lié à deux types différents
+/// dans le même scope est écarté plutôt que deviné.
+pub fn typed_bindings(noeud: Node, content: &str) -> std::collections::HashMap<String, String> {
+    let mut vus: std::collections::HashMap<String, Option<String>> = std::collections::HashMap::new();
+    collect_typed(noeud, content, &mut vus);
+    vus.into_iter().filter_map(|(n, t)| t.map(|t| (n, t))).collect()
+}
+
+fn texte<'a>(n: Node, content: &'a str) -> &'a str {
+    content.get(n.start_byte()..n.end_byte()).unwrap_or("")
+}
+
+fn collect_typed(n: Node, content: &str, vus: &mut std::collections::HashMap<String, Option<String>>) {
+    let k = n.kind();
+    let liaison = match k {
+        "let_declaration" => Some((n.child_by_field_name("pattern"), n.child_by_field_name("type"), n.child_by_field_name("value"))),
+        "parameter" | "required_parameter" | "optional_parameter" => {
+            Some((n.child_by_field_name("pattern").or_else(|| n.child_by_field_name("name")), n.child_by_field_name("type"), None))
+        }
+        "variable_declarator" => Some((n.child_by_field_name("name"), n.child_by_field_name("type"), n.child_by_field_name("value"))),
+        "typed_parameter" => Some((n.named_child(0), n.child_by_field_name("type"), None)),
+        "typed_default_parameter" => Some((n.child_by_field_name("name"), n.child_by_field_name("type"), n.child_by_field_name("value"))),
+        "assignment" => Some((n.child_by_field_name("left"), n.child_by_field_name("type"), n.child_by_field_name("right"))),
+        "parameter_declaration" | "declaration" => {
+            let decl = n.child_by_field_name("declarator");
+            let (nom, valeur) = match decl {
+                Some(d) if d.kind() == "init_declarator" => (d.child_by_field_name("declarator"), d.child_by_field_name("value")),
+                d => (d, None),
+            };
+            Some((nom, n.child_by_field_name("type"), valeur))
+        }
+        _ => None,
+    };
+    if let Some((nom, annotation, valeur)) = liaison {
+        if let Some(nom) = nom.and_then(|x| simple_name(x, content)) {
+            let type_ = annotation
+                .and_then(|t| base_type_name(texte(t, content)))
+                .or_else(|| valeur.and_then(|v| initializer_type(v, content)))
+                .and_then(|t| if t == "Self" { enclosing_impl_type(n, content) } else { Some(t) });
+            if let Some(t) = type_ {
+                match vus.get(&nom) {
+                    Some(Some(ancien)) if *ancien != t => {
+                        vus.insert(nom, None);
+                    }
+                    Some(None) => {}
+                    _ => {
+                        vus.insert(nom, Some(t));
+                    }
+                }
+            }
+        }
+    }
+    let mut c = n.walk();
+    for enfant in n.named_children(&mut c) {
+        collect_typed(enfant, content, vus);
+    }
+}
+
+/// `Self` désigne le type de l'`impl` qui contient le nœud.
+fn enclosing_impl_type(n: Node, content: &str) -> Option<String> {
+    let mut a = n.parent();
+    while let Some(p) = a {
+        if p.kind() == "impl_item" {
+            return p.child_by_field_name("type").and_then(|t| base_type_name(texte(t, content)));
+        }
+        a = p.parent();
+    }
+    None
+}
+
+/// Le nom qu'un motif ou un déclarateur lie, s'il en lie un seul.
+fn simple_name(n: Node, content: &str) -> Option<String> {
+    match n.kind() {
+        "identifier" => {
+            let t = texte(n, content);
+            (t != "self" && !t.is_empty()).then(|| t.to_string())
+        }
+        "mut_pattern" | "reference_pattern" | "reference_declarator" | "pointer_declarator" => {
+            let mut c = n.walk();
+            let enfants: Vec<Node> = n.named_children(&mut c).collect();
+            enfants.into_iter().rev().find_map(|e| simple_name(e, content))
+        }
+        _ => None,
+    }
+}
+
+/// Le type que construit un initialiseur, quand il se lit sur lui.
+fn initializer_type(v: Node, content: &str) -> Option<String> {
+    match v.kind() {
+        "struct_expression" => v.child_by_field_name("name").and_then(|t| base_type_name(texte(t, content))),
+        "new_expression" => v
+            .child_by_field_name("constructor")
+            .or_else(|| v.child_by_field_name("type"))
+            .and_then(|t| base_type_name(texte(t, content))),
+        "call_expression" => {
+            let f = v.child_by_field_name("function")?;
+            if f.kind() != "scoped_identifier" {
+                return None;
+            }
+            let chemin = base_type_name(texte(f.child_by_field_name("path")?, content))?;
+            let fonction = texte(f.child_by_field_name("name")?, content);
+            let constructeur = matches!(fonction, "new" | "default") || fonction.starts_with("new_") || fonction.starts_with("with_") || fonction.starts_with("from");
+            (constructeur && chemin.starts_with(|c: char| c.is_uppercase())).then_some(chemin)
+        }
+        "call" => {
+            let f = v.child_by_field_name("function")?;
+            let nom = texte(f, content);
+            (f.kind() == "identifier" && nom.starts_with(|c: char| c.is_uppercase())).then(|| nom.to_string())
+        }
+        _ => None,
+    }
+}
+
+/// Le nom du type que désigne un texte de type : `&mut Node` → `Node`,
+/// `crate::a::Node<T>` → `Node`, `: Node | null` → `Node`. `Box`, `Arc` et
+/// `Rc` se déballent d'un niveau (on appelle à travers eux les méthodes du
+/// type enveloppé) ; tout autre générique garde son nom (`Option<Node>` est
+/// une `Option`).
+pub fn base_type_name(texte: &str) -> Option<String> {
+    let mut t = texte.trim().trim_start_matches(':').trim();
+    loop {
+        let avant = t;
+        for prefixe in ["&", "*", "mut ", "const ", "dyn ", "impl ", "readonly "] {
+            t = t.trim_start_matches(prefixe).trim_start();
+        }
+        if t == avant {
+            break;
+        }
+    }
+    let chemin: String = t.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':' || *c == '.').collect();
+    let nom = chemin.rsplit(|c| c == ':' || c == '.').find(|s| !s.is_empty())?.to_string();
+    if matches!(nom.as_str(), "Box" | "Arc" | "Rc") {
+        let reste = &t[chemin.len()..];
+        if let Some(interieur) = reste.strip_prefix('<').and_then(|r| r.strip_suffix('>')) {
+            return base_type_name(interieur);
+        }
+    }
+    (!nom.is_empty() && nom.starts_with(|c: char| c.is_alphabetic() || c == '_') && !matches!(nom.as_str(), "auto" | "var" | "let" | "const")).then_some(nom)
+}

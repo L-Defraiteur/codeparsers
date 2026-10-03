@@ -79,6 +79,12 @@ pub struct IdentifierReference {
     /// hors de l'analyseur.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<UsageKind>,
+    /// Le type de la variable `qualifier`, quand il se lit sans inférence
+    /// (annotation, paramètre typé, initialiseur constructeur) : `node` dans
+    /// `node.with_delai(t)` est un `Node`. Il permet de relier l'appel à la
+    /// méthode de ce type plutôt que de l'abandonner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualifier_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

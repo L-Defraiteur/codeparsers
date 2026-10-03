@@ -347,8 +347,11 @@ impl RelationshipResolver {
             }
 
             let candidates = self.scope_mapping.get(&r.identifier).cloned().unwrap_or_default();
-            // Filter to same file
-            let matched = candidates.iter().find(|c| c.file == relative_path);
+            // Filter to same file — et, quand le type du qualificatif se lit,
+            // aux méthodes de ce type.
+            let matched = candidates.iter().find(|c| {
+                c.file == relative_path && r.qualifier_type.as_deref().is_none_or(|t| c.parent.as_deref() == Some(t))
+            });
 
             if let Some(target) = matched {
                 // Skip if target is a child of the source scope
@@ -439,21 +442,32 @@ impl RelationshipResolver {
             // If reference has a qualifier, verify it's a known scope.
             // "this" is always an instance keyword (JS/TS/C#/C++/Java).
             // "self" is an instance keyword only in Python/Rust files.
+            // Une variable dont le type se lit (`n: Node`, `Node::new()`…) :
+            // l'appel vise une méthode de ce type, et d'aucun autre.
+            let mut typed: Option<&str> = None;
             if let Some(ref qualifier) = r.qualifier {
                 let is_instance_qual = qualifier == "this"
                     || (qualifier == "self" && (file_path.ends_with(".py") || file_path.ends_with(".rs")));
                 if !is_instance_qual {
+                    typed = r.qualifier_type.as_deref();
                     let qual_candidates = self.scope_mapping.get(qualifier);
-                    if qual_candidates.map_or(true, |c| c.is_empty()) {
+                    if typed.is_none() && qual_candidates.map_or(true, |c| c.is_empty()) {
                         continue;
                     }
                 }
             }
 
             // Don't reference ourselves
-            let valid: Vec<&ScopeMappingEntry> = candidates.iter()
+            let mut valid: Vec<&ScopeMappingEntry> = candidates.iter()
                 .filter(|c| c.uuid != source_uuid)
                 .collect();
+            if let Some(t) = typed {
+                valid.retain(|c| c.parent.as_deref() == Some(t));
+                // Plusieurs types de ce nom, tous ailleurs : on ne devine pas.
+                if !valid.iter().any(|c| c.file == relative_path) && valid.len() > 1 {
+                    continue;
+                }
+            }
 
             if valid.is_empty() {
                 continue;
