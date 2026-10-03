@@ -315,7 +315,22 @@ impl PythonScopeExtractionParser {
             heritage_clauses: if heritage_clauses.is_empty() { None } else { Some(heritage_clauses) },
             decorator_details: None,
             content: node_content, content_dedented,
-            children: Vec::new(), members: None, enum_members: None,
+            children: Vec::new(), members: {
+                // Les champs typés (annotation de classe, `self.x` de
+                // `__init__`) : de quoi typer `self.x.m()`.
+                let champs = crate::scope_extraction::usage::python_class_fields(node, content);
+                (!champs.is_empty()).then(|| champs.into_iter().map(|(nom, t)| crate::scope_extraction::types::ClassMemberInfo {
+                    name: nom,
+                    r#type: Some(t),
+                    member_type: crate::scope_extraction::types::ClassMemberInfoMemberType::Property,
+                    accessibility: None,
+                    is_static: false,
+                    is_readonly: false,
+                    line: start_line,
+                    signature: None,
+                    value: None,
+                }).collect())
+            }, enum_members: None,
             variables: None, dependencies, exports, imports,
             import_references, identifier_references,
             ast_valid: self.validate_node(node),
@@ -1074,14 +1089,18 @@ impl PythonScopeExtractionParser {
     fn extract_identifier_references(&self, node: SyntaxNode, content: &str, exclude: HashSet<String>) -> Vec<IdentifierReference> {
         let mut references: HashMap<String, IdentifierReference> = HashMap::new();
         let types = crate::scope_extraction::usage::typed_bindings(node, content);
+        let retours = crate::scope_extraction::usage::return_bindings(node, content);
+        let englobant = crate::scope_extraction::usage::enclosing_type(node, content);
         let mut exclude = exclude;
-        for nom in types.keys() {
+        for nom in types.keys().chain(retours.keys()) {
             exclude.insert(super::base_scope_extraction_parser::typed_binding(nom));
         }
         self.visit_identifier_references(node, content, &exclude, &mut references);
         for r in references.values_mut() {
             if let Some(t) = r.qualifier.as_deref().and_then(|q| types.get(q)) {
                 r.qualifier_type = Some(t.clone());
+            } else if let Some(q) = r.qualifier.as_deref() {
+                r.qualifier_deferred = crate::scope_extraction::usage::deferred_for_qualifier(q, &types, &retours, englobant.as_deref(), false);
             }
         }
         references.into_values().collect()
@@ -1119,6 +1138,7 @@ impl PythonScopeExtractionParser {
                     references.insert(key, IdentifierReference {
                         usage: Some(crate::scope_extraction::usage::usage_of(node)),
                         qualifier_type: None,
+                        qualifier_deferred: None,
                         identifier,
                         line: node.start_position().row + 1,
                         column: Some(node.start_position().column),
@@ -1152,6 +1172,7 @@ impl PythonScopeExtractionParser {
                     references.insert(key, IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Call),
                         qualifier_type: None,
+                        qualifier_deferred: None,
                         identifier: name,
                         line: function_node.start_position().row + 1,
                         column: Some(function_node.start_position().column),
@@ -1196,6 +1217,7 @@ impl PythonScopeExtractionParser {
                     references.insert(key, IdentifierReference {
                         usage: Some(crate::scope_extraction::usage::usage_of(attr_node)),
                         qualifier_type: None,
+                        qualifier_deferred: None,
                         identifier: attribute,
                         line: attr_node.start_position().row + 1,
                         column: Some(attr_node.start_position().column),
@@ -1451,6 +1473,7 @@ impl PythonScopeExtractionParser {
                         type_var_bounds_to_add.push(IdentifierReference {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             qualifier_type: None,
+                            qualifier_deferred: None,
                             identifier: bound_type.clone(),
                             line: r.line,
                             column: r.column,
@@ -1527,6 +1550,7 @@ impl PythonScopeExtractionParser {
                         scope.identifier_references.push(IdentifierReference {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             qualifier_type: None,
+                            qualifier_deferred: None,
                             identifier: type_id.clone(),
                             line: scope.scope_start_line,
                             context: Some(scope.signature.clone()),
@@ -1543,6 +1567,7 @@ impl PythonScopeExtractionParser {
                     scope.identifier_references.push(IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Type),
                         qualifier_type: None,
+                        qualifier_deferred: None,
                         identifier: type_id.clone(),
                         line: scope.scope_start_line,
                         context: Some(scope.signature.clone()),
@@ -1596,6 +1621,7 @@ impl PythonScopeExtractionParser {
                             scope.identifier_references.push(IdentifierReference {
                                 usage: Some(crate::scope_extraction::types::UsageKind::Type),
                                 qualifier_type: None,
+                                qualifier_deferred: None,
                                 identifier: type_id.clone(),
                                 line: *start_line,
                                 context: Some(signature.clone()),
@@ -1612,6 +1638,7 @@ impl PythonScopeExtractionParser {
                         scope.identifier_references.push(IdentifierReference {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             qualifier_type: None,
+                            qualifier_deferred: None,
                             identifier: type_id.clone(),
                             line: *start_line,
                             context: Some(signature.clone()),
@@ -1672,6 +1699,7 @@ impl PythonScopeExtractionParser {
                     class_scope.identifier_references.push(IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Type),
                         qualifier_type: None,
+                        qualifier_deferred: None,
                         identifier: type_name.clone(),
                         line: *line,
                         context: Some(context.clone()),

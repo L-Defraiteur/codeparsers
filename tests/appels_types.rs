@@ -99,8 +99,11 @@ fn delai(t: u64) -> Node {
     node = node.with_delai(t);
     node
 }
+fn ident<T>(x: T) -> T { x }
 fn inconnu() {
-    let n = make();
+    // Le retour de `ident` ne nomme pas de type : illisible sans inférence.
+    // (`let n = make();` se lit depuis que les retours déclarés comptent.)
+    let n = ident(make());
     n.run();
     n.only_here();
 }

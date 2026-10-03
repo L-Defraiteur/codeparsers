@@ -992,6 +992,7 @@ impl GoScopeExtractionParser {
                             references.push(IdentifierReference {
                                 usage: Some(crate::scope_extraction::usage::usage_of(type_node)),
                                 qualifier_type: None,
+                                qualifier_deferred: None,
                                 identifier,
                                 line: type_node.start_position().row + 1,
                                 column: Some(type_node.start_position().column),
@@ -1023,6 +1024,7 @@ impl GoScopeExtractionParser {
                             references.push(IdentifierReference {
                                 usage: Some(crate::scope_extraction::usage::usage_of(node)),
                                 qualifier_type: None,
+                                qualifier_deferred: None,
                                 identifier,
                                 line: node.start_position().row + 1,
                                 column: Some(node.start_position().column),
@@ -1061,6 +1063,7 @@ impl GoScopeExtractionParser {
                             references.push(IdentifierReference {
                                 usage: Some(crate::scope_extraction::usage::usage_of(field_node)),
                                 qualifier_type: None,
+                                qualifier_deferred: None,
                                 identifier,
                                 line: field_node.start_position().row + 1,
                                 column: Some(field_node.start_position().column),
@@ -1097,6 +1100,7 @@ impl GoScopeExtractionParser {
                             references.push(IdentifierReference {
                                 usage: Some(crate::scope_extraction::usage::usage_of(type_node)),
                                 qualifier_type: None,
+                                qualifier_deferred: None,
                                 identifier,
                                 line: type_node.start_position().row + 1,
                                 column: Some(type_node.start_position().column),

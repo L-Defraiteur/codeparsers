@@ -107,6 +107,11 @@ pub struct RelationshipResolver {
     /// Les noms de dossiers et de modules du projet analysé : un import
     /// absolu dont la racine en est un n'est pas une bibliothèque.
     project_modules: HashSet<String>,
+    /// (type, champ) → type déclaré du champ ; `None` si deux déclarations
+    /// se contredisent.
+    field_types: HashMap<(String, String), Option<String>>,
+    /// uuid d'une fonction → (type de retour tel qu'écrit, parent).
+    return_types: HashMap<String, (String, Option<String>)>,
 }
 
 impl RelationshipResolver {
@@ -119,6 +124,8 @@ impl RelationshipResolver {
             files_map: HashMap::new(),
             external_libraries_map: HashMap::new(),
             project_modules: HashSet::new(),
+            field_types: HashMap::new(),
+            return_types: HashMap::new(),
         }
     }
 
@@ -309,6 +316,8 @@ impl RelationshipResolver {
     fn build_global_scope_mapping(&mut self, parsed_files: &ParsedFilesMap) {
         self.scope_mapping.clear();
         self.uuid_mapping.clear();
+        self.field_types.clear();
+        self.return_types.clear();
 
         for (file_path, analysis) in parsed_files {
             let relative_path = self.get_relative_path(file_path);
@@ -332,6 +341,28 @@ impl RelationshipResolver {
                     .entry(scope.name.clone())
                     .or_default()
                     .push(entry.clone());
+
+                // Les types déclarés des champs et des retours, pour typer
+                // `self.store.get()` et `make_store().get()`.
+                for m in scope.members.iter().flatten() {
+                    if m.member_type != crate::scope_extraction::types::ClassMemberInfoMemberType::Property {
+                        continue;
+                    }
+                    let Some(t) = m.r#type.as_deref().and_then(crate::scope_extraction::usage::base_type_name) else { continue };
+                    let cle = (scope.name.clone(), m.name.clone());
+                    match self.field_types.get(&cle) {
+                        Some(Some(ancien)) if *ancien != t => {
+                            self.field_types.insert(cle, None);
+                        }
+                        Some(_) => {}
+                        None => {
+                            self.field_types.insert(cle, Some(t));
+                        }
+                    }
+                }
+                if let Some(rt) = scope.return_type.as_ref().filter(|t| !t.trim().is_empty()) {
+                    self.return_types.insert(uuid.clone(), (rt.clone(), scope.parent.clone()));
+                }
 
                 // Add to UUID mapping
                 self.uuid_mapping.insert(uuid, entry);
@@ -363,8 +394,20 @@ impl RelationshipResolver {
             let candidates = self.scope_mapping.get(&r.identifier).cloned().unwrap_or_default();
             // Filter to same file — et, quand le type du qualificatif se lit,
             // aux méthodes de ce type.
+            let type_lu = self.effective_qualifier_type(r);
+            // Un type qui devait se lire ailleurs et ne s'y lit pas : pas de
+            // repli sur le nom — sauf quand le qualificatif nomme lui-même un
+            // type ou un espace de noms (`Foo::bar`), jamais une variable.
+            let qualificatif_de_type = r.qualifier.as_ref().is_some_and(|q| {
+                self.scope_mapping.get(q).is_some_and(|c| {
+                    c.iter().any(|e| matches!(e.r#type.as_str(), "class" | "interface" | "enum" | "namespace" | "module" | "type_alias"))
+                })
+            });
+            if type_lu.is_none() && r.qualifier_deferred.is_some() && !qualificatif_de_type {
+                continue;
+            }
             let matched = candidates.iter().find(|c| {
-                c.file == relative_path && r.qualifier_type.as_deref().is_none_or(|t| c.parent.as_deref() == Some(t))
+                c.file == relative_path && type_lu.as_deref().is_none_or(|t| c.parent.as_deref() == Some(t))
             });
 
             if let Some(target) = matched {
@@ -458,18 +501,20 @@ impl RelationshipResolver {
             // "self" is an instance keyword only in Python/Rust files.
             // Une variable dont le type se lit (`n: Node`, `Node::new()`…) :
             // l'appel vise une méthode de ce type, et d'aucun autre.
-            let mut typed: Option<&str> = None;
+            let mut typed_owned: Option<String> = None;
             if let Some(ref qualifier) = r.qualifier {
                 let is_instance_qual = qualifier == "this"
                     || (qualifier == "self" && (file_path.ends_with(".py") || file_path.ends_with(".rs")));
                 if !is_instance_qual {
-                    typed = r.qualifier_type.as_deref();
+                    typed_owned = self.effective_qualifier_type(r);
+                    let typed = typed_owned.as_deref();
                     let qual_candidates = self.scope_mapping.get(qualifier);
                     if typed.is_none() && qual_candidates.map_or(true, |c| c.is_empty()) {
                         continue;
                     }
                 }
             }
+            let typed = typed_owned.as_deref();
 
             // Don't reference ourselves
             let mut valid: Vec<&ScopeMappingEntry> = candidates.iter()
@@ -835,6 +880,33 @@ impl RelationshipResolver {
         }
 
         relationships
+    }
+
+    /// Le type du qualificatif d'une référence : lu sur place
+    /// (`qualifier_type`), ou dans une déclaration d'ailleurs — le champ d'un
+    /// type, le retour d'une fonction qui se résout sans ambiguïté. `None`
+    /// quand il ne se lit pas : pas de devinette.
+    fn effective_qualifier_type(&self, r: &IdentifierReference) -> Option<String> {
+        use crate::scope_extraction::types::DeferredType;
+        if let Some(t) = &r.qualifier_type {
+            return Some(t.clone());
+        }
+        match r.qualifier_deferred.as_ref()? {
+            DeferredType::FieldOf { owner, field } => self.field_types.get(&(owner.clone(), field.clone())).cloned().flatten(),
+            DeferredType::ReturnOf { function, unwrap } => {
+                let fonctions: Vec<&ScopeMappingEntry> = self
+                    .scope_mapping
+                    .get(function)?
+                    .iter()
+                    .filter(|c| c.r#type == "function" || c.r#type == "method")
+                    .collect();
+                let [unique] = fonctions.as_slice() else { return None };
+                let (ecrit, parent) = self.return_types.get(&unique.uuid)?;
+                let ecrit = if *unwrap { first_generic_argument(ecrit, &["Result", "Option"])? } else { ecrit.clone() };
+                let t = crate::scope_extraction::usage::base_type_name(&ecrit)?;
+                if t == "Self" { parent.clone() } else { Some(t) }
+            }
+        }
     }
 
     /// Generate deterministic UUID for a file.
@@ -1271,4 +1343,27 @@ fn merge_by_target(rels: Vec<ResolvedRelationship>) -> Vec<ResolvedRelationship>
         out.push(r);
     }
     out
+}
+
+/// `Result<Store, String>` → `Store` quand l'enveloppe est l'une de
+/// `enveloppes` (le `?` d'un appel déballe un `Result` ou une `Option`).
+fn first_generic_argument(texte: &str, enveloppes: &[&str]) -> Option<String> {
+    let t = texte.trim().trim_start_matches("->").trim_start_matches(':').trim();
+    let ouverture = t.find('<')?;
+    let nom = t[..ouverture].rsplit("::").next().unwrap_or("").trim();
+    if !enveloppes.contains(&nom) {
+        return None;
+    }
+    let mut profondeur = 0usize;
+    let interieur = &t[ouverture + 1..];
+    for (i, c) in interieur.char_indices() {
+        match c {
+            '<' => profondeur += 1,
+            '>' if profondeur == 0 => return Some(interieur[..i].trim().to_string()),
+            '>' => profondeur -= 1,
+            ',' if profondeur == 0 => return Some(interieur[..i].trim().to_string()),
+            _ => {}
+        }
+    }
+    None
 }

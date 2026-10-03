@@ -2242,14 +2242,20 @@ impl BaseScopeExtractionParser {
         // référence (même quand la variable est un paramètre exclu), et
         // porte le type.
         let types = crate::scope_extraction::usage::typed_bindings(node, content);
+        let retours = crate::scope_extraction::usage::return_bindings(node, content);
+        let englobant = crate::scope_extraction::usage::enclosing_type(node, content);
         let mut exclude = exclude;
-        for nom in types.keys() {
+        for nom in types.keys().chain(retours.keys()) {
             exclude.insert(typed_binding(nom));
         }
         self.extract_identifier_references_visit(node, content, &exclude, &mut references);
+        let champ_implicite = matches!(self.language, SupportedLanguage::Cpp);
         for r in references.values_mut() {
             if let Some(t) = r.qualifier.as_deref().and_then(|q| types.get(q)) {
                 r.qualifier_type = Some(t.clone());
+            } else if let Some(q) = r.qualifier.as_deref() {
+                r.qualifier_deferred =
+                    crate::scope_extraction::usage::deferred_for_qualifier(q, &types, &retours, englobant.as_deref(), champ_implicite);
             }
         }
         references.into_values().collect()
@@ -2279,6 +2285,7 @@ impl BaseScopeExtractionParser {
                     references.entry(key).or_insert_with(|| IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Call),
                         qualifier_type: None,
+                        qualifier_deferred: None,
                         identifier,
                         line: row + 1,
                         column: Some(col),
@@ -2360,6 +2367,7 @@ impl BaseScopeExtractionParser {
                 references.entry(key).or_insert_with(|| IdentifierReference {
                     usage: Some(crate::scope_extraction::usage::usage_of(current)),
                     qualifier_type: None,
+                    qualifier_deferred: None,
                     identifier,
                     line: row + 1,
                     column: Some(col),
@@ -2746,6 +2754,7 @@ impl BaseScopeExtractionParser {
                     scope.identifier_references.push(IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Other),
                         qualifier_type: None,
+                        qualifier_deferred: None,
                         identifier: symbol_name.to_string(),
                         line: scope.scope_start_line + line_offset,
                         column: Some(col),
@@ -2799,6 +2808,7 @@ impl BaseScopeExtractionParser {
                         scope.identifier_references.push(IdentifierReference {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             qualifier_type: None,
+                            qualifier_deferred: None,
                             identifier: type_id,
                             line: scope.scope_start_line,
                             column: None,
@@ -2818,6 +2828,7 @@ impl BaseScopeExtractionParser {
                     scope.identifier_references.push(IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Type),
                         qualifier_type: None,
+                        qualifier_deferred: None,
                         identifier: type_id,
                         line: scope.scope_start_line,
                         column: None,
@@ -2864,6 +2875,7 @@ impl BaseScopeExtractionParser {
                             scope.identifier_references.push(IdentifierReference {
                                 usage: Some(crate::scope_extraction::types::UsageKind::Type),
                                 qualifier_type: None,
+                                qualifier_deferred: None,
                                 identifier: type_id.clone(),
                                 line: scope.scope_start_line,
                                 column: None,
@@ -2882,6 +2894,7 @@ impl BaseScopeExtractionParser {
                         scope.identifier_references.push(IdentifierReference {
                             usage: Some(crate::scope_extraction::types::UsageKind::Type),
                             qualifier_type: None,
+                            qualifier_deferred: None,
                             identifier: type_id.clone(),
                             line: scope.scope_start_line,
                             column: None,
@@ -2946,6 +2959,7 @@ impl BaseScopeExtractionParser {
                     class_scope.identifier_references.push(IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Type),
                         qualifier_type: None,
+                        qualifier_deferred: None,
                         identifier: type_name,
                         line: ref_info.line,
                         column: None,
@@ -3504,6 +3518,7 @@ impl BaseScopeExtractionParser {
                 references.push(IdentifierReference {
                     usage: Some(crate::scope_extraction::usage::usage_of_line(line)),
                     qualifier_type: None,
+                    qualifier_deferred: None,
                     identifier,
                     line: base + line_index,
                     column: Some(m.get(1).unwrap().start()),

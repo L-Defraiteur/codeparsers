@@ -308,7 +308,7 @@ fn initializer_type(v: Node, content: &str) -> Option<String> {
 /// type enveloppé) ; tout autre générique garde son nom (`Option<Node>` est
 /// une `Option`).
 pub fn base_type_name(texte: &str) -> Option<String> {
-    let mut t = texte.trim().trim_start_matches(':').trim();
+    let mut t = texte.trim().trim_start_matches("->").trim_start_matches(':').trim();
     loop {
         let avant = t;
         for prefixe in ["&", "*", "mut ", "const ", "dyn ", "impl ", "readonly "] {
@@ -327,4 +327,180 @@ pub fn base_type_name(texte: &str) -> Option<String> {
         }
     }
     (!nom.is_empty() && nom.starts_with(|c: char| c.is_alphabetic() || c == '_') && !matches!(nom.as_str(), "auto" | "var" | "let" | "const")).then_some(nom)
+}
+
+/// **Les variables liées au retour d'un appel** : `let s = make_store();`,
+/// `s = make_store()` (Python), `auto s = make();` — le nom de la fonction
+/// appelée, et `true` quand l'appel est suivi de `?`. Seul un appel direct
+/// d'un nom compte (pas `a.b()`, pas `T::new()`, déjà lu comme un type).
+pub fn return_bindings(noeud: Node, content: &str) -> std::collections::HashMap<String, (String, bool)> {
+    let mut vus: std::collections::HashMap<String, Option<(String, bool)>> = std::collections::HashMap::new();
+    collect_returns(noeud, content, &mut vus);
+    vus.into_iter().filter_map(|(n, t)| t.map(|t| (n, t))).collect()
+}
+
+fn collect_returns(n: Node, content: &str, vus: &mut std::collections::HashMap<String, Option<(String, bool)>>) {
+    let liaison = match n.kind() {
+        "let_declaration" if n.child_by_field_name("type").is_none() => Some((n.child_by_field_name("pattern"), n.child_by_field_name("value"))),
+        "variable_declarator" if n.child_by_field_name("type").is_none() => Some((n.child_by_field_name("name"), n.child_by_field_name("value"))),
+        "assignment" if n.child_by_field_name("type").is_none() => Some((n.child_by_field_name("left"), n.child_by_field_name("right"))),
+        "init_declarator" => Some((n.child_by_field_name("declarator"), n.child_by_field_name("value"))),
+        _ => None,
+    };
+    if let Some((Some(nom), Some(valeur))) = liaison {
+        if let (Some(nom), Some(appel)) = (simple_name(nom, content), returned_call(valeur, content)) {
+            match vus.get(&nom) {
+                Some(Some(ancien)) if *ancien != appel => {
+                    vus.insert(nom, None);
+                }
+                Some(None) => {}
+                _ => {
+                    vus.insert(nom, Some(appel));
+                }
+            }
+        }
+    }
+    let mut c = n.walk();
+    for enfant in n.named_children(&mut c) {
+        collect_returns(enfant, content, vus);
+    }
+}
+
+/// `make_store()` → (`make_store`, false) ; `try_store()?` → (`try_store`, true).
+fn returned_call(v: Node, content: &str) -> Option<(String, bool)> {
+    let (appel, deballe) = if v.kind() == "try_expression" { (v.named_child(0)?, true) } else { (v, false) };
+    if !matches!(appel.kind(), "call_expression" | "call") {
+        return None;
+    }
+    let f = appel.child_by_field_name("function")?;
+    if f.kind() != "identifier" {
+        return None;
+    }
+    let nom = texte(f, content);
+    // `Node()` en Python est un constructeur, déjà lu comme un type.
+    (!nom.starts_with(|c: char| c.is_uppercase())).then(|| (nom.to_string(), deballe))
+}
+
+/// Le type qui contient le nœud : l'`impl` (Rust), la classe (TS, JS,
+/// Python, C++), ou le `Type::` d'une méthode C++ définie hors de sa classe.
+pub fn enclosing_type(n: Node, content: &str) -> Option<String> {
+    let mut a = Some(n);
+    while let Some(p) = a {
+        match p.kind() {
+            "impl_item" => return p.child_by_field_name("type").and_then(|t| base_type_name(texte(t, content))),
+            "class_declaration" | "class" | "class_definition" | "class_specifier" | "struct_specifier" | "abstract_class_declaration" => {
+                return p.child_by_field_name("name").map(|t| texte(t, content).to_string());
+            }
+            "function_definition" => {
+                // C++ : `void Svc::run() { … }`
+                if let Some(d) = p.child_by_field_name("declarator").and_then(|d| d.child_by_field_name("declarator")) {
+                    if d.kind() == "qualified_identifier" {
+                        if let Some(scope) = d.child_by_field_name("scope") {
+                            return base_type_name(texte(scope, content));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        a = p.parent();
+    }
+    None
+}
+
+/// Ce qu'il faut lire ailleurs pour typer un qualificatif, quand il ne se
+/// type pas sur place :
+/// - `self.f`, `this.f`, `this->f` : le champ `f` du type englobant ;
+/// - `x.f` avec `x` d'un type lu : le champ `f` de ce type (un niveau) ;
+/// - `x` lié au retour d'un appel, ou `g()` / `g()?` : le retour de `g` ;
+/// - en C++, un nom nu qui n'est pas une variable : un champ implicite.
+pub fn deferred_for_qualifier(
+    q: &str,
+    types: &std::collections::HashMap<String, String>,
+    retours: &std::collections::HashMap<String, (String, bool)>,
+    englobant: Option<&str>,
+    champ_implicite: bool,
+) -> Option<super::types::DeferredType> {
+    use super::types::DeferredType;
+    let ident = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_');
+    let q = q.trim();
+    for sep in [".", "->"] {
+        if let Some((racine, champ)) = q.split_once(sep) {
+            if !ident(champ) || !ident(racine) {
+                continue;
+            }
+            let proprietaire = if matches!(racine, "self" | "this") { englobant.map(str::to_string) } else { types.get(racine).cloned() };
+            return proprietaire.map(|owner| DeferredType::FieldOf { owner, field: champ.to_string() });
+        }
+    }
+    if matches!(q, "self" | "this" | "Self" | "super" | "cls") {
+        return None;
+    }
+    if ident(q) {
+        if let Some((f, deballe)) = retours.get(q) {
+            return Some(DeferredType::ReturnOf { function: f.clone(), unwrap: *deballe });
+        }
+        if champ_implicite && !types.contains_key(q) {
+            return englobant.map(|owner| DeferredType::FieldOf { owner: owner.to_string(), field: q.to_string() });
+        }
+        return None;
+    }
+    // `g()` ou `g(…)?` : un appel direct comme objet.
+    let (corps, deballe) = match q.strip_suffix('?') {
+        Some(c) => (c.trim_end(), true),
+        None => (q, false),
+    };
+    let ouverture = corps.find('(')?;
+    let nom = &corps[..ouverture];
+    (ident(nom) && corps.ends_with(')') && !nom.starts_with(|c: char| c.is_uppercase()))
+        .then(|| DeferredType::ReturnOf { function: nom.to_string(), unwrap: deballe })
+}
+
+/// **Les champs typés d'une classe Python** : `x: T` dans le corps de la
+/// classe, et dans `__init__` `self.x: T = …` ou `self.x = T(…)` (un
+/// constructeur). Rien d'autre : pas d'inférence.
+pub fn python_class_fields(classe: Node, content: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let Some(corps) = classe.child_by_field_name("body") else { return out };
+    let mut c = corps.walk();
+    for stmt in corps.named_children(&mut c) {
+        if stmt.kind() == "expression_statement" {
+            if let Some(a) = stmt.named_child(0).filter(|a| a.kind() == "assignment") {
+                let nom = a.child_by_field_name("left").filter(|l| l.kind() == "identifier").map(|l| texte(l, content).to_string());
+                let t = a.child_by_field_name("type").and_then(|t| base_type_name(texte(t, content)));
+                if let (Some(n), Some(t)) = (nom, t) {
+                    out.push((n, t));
+                }
+            }
+        }
+        let def = if stmt.kind() == "decorated_definition" { stmt.child_by_field_name("definition") } else { Some(stmt) };
+        let Some(def) = def.filter(|d| d.kind() == "function_definition") else { continue };
+        if def.child_by_field_name("name").map(|n| texte(n, content)) != Some("__init__") {
+            continue;
+        }
+        collect_self_fields(def, content, &mut out);
+    }
+    out
+}
+
+fn collect_self_fields(n: Node, content: &str, out: &mut Vec<(String, String)>) {
+    if n.kind() == "assignment" {
+        if let Some(gauche) = n.child_by_field_name("left").filter(|l| l.kind() == "attribute") {
+            let objet = gauche.child_by_field_name("object").map(|o| texte(o, content));
+            let champ = gauche.child_by_field_name("attribute").map(|a| texte(a, content).to_string());
+            if let (Some("self"), Some(champ)) = (objet, champ) {
+                let t = n
+                    .child_by_field_name("type")
+                    .and_then(|t| base_type_name(texte(t, content)))
+                    .or_else(|| n.child_by_field_name("right").and_then(|v| initializer_type(v, content)));
+                if let Some(t) = t {
+                    out.push((champ, t));
+                }
+            }
+        }
+    }
+    let mut c = n.walk();
+    for enfant in n.named_children(&mut c) {
+        collect_self_fields(enfant, content, out);
+    }
 }

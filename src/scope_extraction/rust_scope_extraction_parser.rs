@@ -462,6 +462,7 @@ impl RustScopeExtractionParser {
             identifier_references.push(IdentifierReference {
                 usage: Some(crate::scope_extraction::types::UsageKind::Inheritance),
                 qualifier_type: None,
+                qualifier_deferred: None,
                 identifier: base_trait_name,
                 line: start_line,
                 column: Some(0),
@@ -1084,9 +1085,10 @@ impl RustScopeExtractionParser {
         // Extract parameters
         let parameters = self.extract_rust_parameters(node, content);
 
-        // Extract return type
-        let mut cursor = node.walk();
-        let return_type_node = node.children(&mut cursor).find(|c| c.kind() == "return_type");
+        // Extract return type — un *champ* `return_type` dont le nœud est le
+        // type lui-même ; chercher un enfant de genre `return_type` ne
+        // trouvait jamais rien (signature sans `->`, retour jamais lu).
+        let return_type_node = node.child_by_field_name("return_type");
         let return_type = return_type_node.map(|rt| {
             let text = self.base.get_node_text(Some(rt), content);
             text.trim_start_matches("->").trim().to_string()
@@ -1316,6 +1318,7 @@ fn visit_rust_type_refs(
                 references.push(IdentifierReference {
                     usage: Some(crate::scope_extraction::usage::usage_of(current)),
                     qualifier_type: None,
+                    qualifier_deferred: None,
                     identifier,
                     line: current.start_position().row + 1,
                     column: Some(current.start_position().column),
@@ -1346,6 +1349,7 @@ fn visit_rust_type_refs(
                     references.push(IdentifierReference {
                         usage: Some(crate::scope_extraction::usage::usage_of(*last_id)),
                         qualifier_type: None,
+                        qualifier_deferred: None,
                         identifier,
                         line: last_id.start_position().row + 1,
                         column: Some(last_id.start_position().column),

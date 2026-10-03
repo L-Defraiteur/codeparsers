@@ -85,6 +85,24 @@ pub struct IdentifierReference {
     /// méthode de ce type plutôt que de l'abandonner.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub qualifier_type: Option<String>,
+    /// Quand le type du qualificatif ne se lit pas sur place mais dans une
+    /// déclaration ailleurs (un champ, un type de retour) : ce qu'il faut y
+    /// lire. Le résolveur, qui voit tout le projet, le calcule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualifier_deferred: Option<DeferredType>,
+}
+
+/// Un type à lire dans une déclaration d'ailleurs.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeferredType {
+    /// Le type déclaré du champ `field` du type `owner` (`self.store`,
+    /// `v.store` avec `v: Svc`, un champ implicite en C++).
+    FieldOf { owner: String, field: String },
+    /// Le type de retour déclaré de la fonction `function` (`let s =
+    /// make_store()`, `make_store().get()`) ; `unwrap` quand l'appel est
+    /// suivi de `?`, qui déballe un `Result` ou une `Option`.
+    ReturnOf { function: String, unwrap: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

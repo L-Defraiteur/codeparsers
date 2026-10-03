@@ -917,6 +917,7 @@ impl CScopeExtractionParser {
                         references.push(IdentifierReference {
                             usage: Some(crate::scope_extraction::usage::usage_of(node)),
                             qualifier_type: None,
+                            qualifier_deferred: None,
                             identifier,
                             line: node.start_position().row + 1,
                             column: Some(node.start_position().column),
