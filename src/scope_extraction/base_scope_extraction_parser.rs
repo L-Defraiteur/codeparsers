@@ -2091,6 +2091,29 @@ impl BaseScopeExtractionParser {
 
     /// Collect local symbols (definitions) from a node
 
+    /// Les noms que lie un motif : ses identifiants, sauf ceux qui nomment un
+    /// type ou un chemin (`Some(x)` lie `x`, pas `Some`). Ils entrent marqués
+    /// par [`local_binding`] : ils n'excluent que l'identifiant nu, pas
+    /// l'accès qualifié (`node.with_delai(t)` reste un appel de méthode).
+    fn collect_pattern_bindings(&self, motif: SyntaxNode, content: &str, symbols: &mut HashSet<String>) {
+        if motif.kind() == "identifier" {
+            let parent = motif.parent().map(|p| p.kind()).unwrap_or("");
+            let est_un_chemin = matches!(parent, "tuple_struct_pattern" | "struct_pattern" | "scoped_identifier")
+                && motif.parent().and_then(|p| p.child_by_field_name("type")).is_some_and(|t| t.id() == motif.id());
+            if !est_un_chemin && parent != "scoped_identifier" {
+                let text = self.get_node_text(Some(motif), content);
+                if !text.is_empty() {
+                    symbols.insert(local_binding(&text));
+                }
+            }
+            return;
+        }
+        let mut cursor = motif.walk();
+        for child in motif.named_children(&mut cursor) {
+            self.collect_pattern_bindings(child, content, symbols);
+        }
+    }
+
     pub fn collect_local_symbols(&self, node: SyntaxNode, content: &str) -> HashSet<String> {
         let mut symbols = HashSet::new();
         self.collect_local_symbols_visit(node, content, &mut symbols);
@@ -2127,6 +2150,19 @@ impl BaseScopeExtractionParser {
                 symbols.insert(text);
             }
             return;
+        }
+
+        // Les variables que nomme un motif plutôt qu'un champ `name` : `let x`
+        // et `for x in` en Rust, `x := …` en Go. Sans elles, une variable
+        // homonyme d'une méthode du fichier passait pour un appel à celle-ci
+        // (`let count = data.len();`, port.rs, 3 octobre 2026).
+        let motif = match kind {
+            "let_declaration" | "for_expression" => current.child_by_field_name("pattern"),
+            "short_var_declaration" => current.child_by_field_name("left"),
+            _ => None,
+        };
+        if let Some(motif) = motif {
+            self.collect_pattern_bindings(motif, content, symbols);
         }
 
         let mut cursor = current.walk();
@@ -2240,6 +2276,12 @@ impl BaseScopeExtractionParser {
                             }
                         }
                     }
+                }
+
+                // Une variable liée par `let`, `for` ou `:=` cache le nom nu,
+                // pas le membre d'un autre objet (`x.count` n'est pas `count`).
+                if qualifier.is_none() && exclude.contains(&local_binding(&identifier)) && !in_own_initializer(current, &identifier, content) {
+                    return;
                 }
 
                 if let Some(ref q) = qualifier {
@@ -3052,10 +3094,11 @@ impl BaseScopeExtractionParser {
                 let gap_end = scope.scope_start_line - 1;
 
                 let gap_content = lines[gap_start - 1..gap_end].join("\n");
+                let first_line = gap_start + leading_blank_lines(&gap_content);
                 let gap_content = gap_content.trim();
 
                 if self.has_meaningful_content(gap_content) {
-                    let file_scope = self.create_file_scope(gap_content, gap_start, gap_end, file_path, file_scope_index, file_imports);
+                    let file_scope = self.create_file_scope_at(gap_content, gap_start, gap_end, first_line, file_path, file_scope_index, file_imports);
                     file_scope_index += 1;
                     file_scopes.push(file_scope);
                 }
@@ -3066,9 +3109,10 @@ impl BaseScopeExtractionParser {
         // Check for code after the last scope
         if current_line <= total_lines {
             let gap_content = lines[current_line - 1..].join("\n");
+            let first_line = current_line + leading_blank_lines(&gap_content);
             let gap_content = gap_content.trim();
             if self.has_meaningful_content(gap_content) {
-                let file_scope = self.create_file_scope(gap_content, current_line, total_lines, file_path, file_scope_index, file_imports);
+                let file_scope = self.create_file_scope_at(gap_content, current_line, total_lines, first_line, file_path, file_scope_index, file_imports);
                 file_scopes.push(file_scope);
             }
         }
@@ -3103,13 +3147,20 @@ impl BaseScopeExtractionParser {
     /// Create a file scope from code content
 
     pub fn create_file_scope(&self, content: &str, start_line: usize, end_line: usize, file_path: &str, index: usize, file_imports: &[ImportReference]) -> ScopeInfo {
+        self.create_file_scope_at(content, start_line, end_line, start_line, file_path, index, file_imports)
+    }
+
+    /// Comme [`Self::create_file_scope`], quand `content` a été rogné : sa
+    /// première ligne est la ligne `content_first_line` du fichier, et c'est
+    /// d'elle que partent les lignes des références.
+    fn create_file_scope_at(&self, content: &str, start_line: usize, end_line: usize, content_first_line: usize, file_path: &str, index: usize, file_imports: &[ImportReference]) -> ScopeInfo {
         let name = format!("file_scope_{:02}", index);
         let lines_of_code = end_line - start_line + 1;
 
         let variables = self.extract_top_level_variables(content, start_line as f64);
 
         let reference_exclusions = HashSet::new();
-        let identifier_references = self.extract_identifier_references_from_text(content, reference_exclusions, start_line as f64);
+        let identifier_references = self.extract_identifier_references_from_text(content, reference_exclusions, content_first_line as f64);
         let import_references = self.resolve_imports_for_scope(&identifier_references, file_imports);
 
         let dependencies = self.extract_dependencies(content);
@@ -3331,8 +3382,15 @@ impl BaseScopeExtractionParser {
         let mut references = Vec::new();
         let identifier_pattern = cached_regex!(r"\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b");
         let base = base_line as usize;
+        let mut dans_un_bloc = false;
 
         for (line_index, line) in content.split('\n').enumerate() {
+            // Une ligne de commentaire ne nomme rien qu'elle utilise : « is »
+            // dans un commentaire de doc reliait la zone au symbole `is`
+            // (services.rs:15, 3 octobre 2026).
+            if is_comment_line(line, &mut dans_un_bloc) {
+                continue;
+            }
             for m in identifier_pattern.captures_iter(line) {
                 let identifier = m[1].to_string();
 
@@ -4086,4 +4144,63 @@ impl BaseScopeExtractionParser {
         scopes
     }
 
+}
+
+/// Une ligne entièrement en commentaire : `//`, `/* … */` (sur plusieurs
+/// lignes aussi), ou `#` suivi d'un blanc (Python, shell). `#include`,
+/// `#define` et `#[attribut]` restent du code.
+fn is_comment_line(ligne: &str, dans_un_bloc: &mut bool) -> bool {
+    let l = ligne.trim_start();
+    if *dans_un_bloc {
+        if l.contains("*/") {
+            *dans_un_bloc = false;
+            return l.trim_end().ends_with("*/");
+        }
+        return true;
+    }
+    if l.starts_with("/*") {
+        if !l.contains("*/") {
+            *dans_un_bloc = true;
+            return true;
+        }
+        return l.trim_end().ends_with("*/");
+    }
+    l.starts_with("//") || l == "#" || l.starts_with("# ") || l.starts_with("#!/")
+}
+
+/// Le nombre de lignes vides en tête de `texte`, que `trim` va retirer.
+fn leading_blank_lines(texte: &str) -> usize {
+    let retire = texte.len() - texte.trim_start().len();
+    texte[..retire].matches('\n').count()
+}
+
+/// La clé sous laquelle une variable locale liée par un motif (`let x`,
+/// `for x in`, `x := …`) entre dans l'ensemble d'exclusion. Distincte du nom
+/// nu, pour ne pas hériter de la règle qui écarte aussi `x.membre` quand `x`
+/// est exclu (paramètres, définitions locales).
+pub fn local_binding(nom: &str) -> String {
+    format!("\u{1}let:{nom}")
+}
+
+/// Vrai si `noeud` est dans l'initialiseur d'un `let` (ou d'un `:=`) qui lie
+/// justement `nom` : dans `let message = message(1);`, le second `message`
+/// est la fonction, la variable n'existe pas encore.
+fn in_own_initializer(noeud: tree_sitter::Node, nom: &str, content: &str) -> bool {
+    let mut a = noeud.parent();
+    while let Some(p) = a {
+        let (motif, valeur) = match p.kind() {
+            "let_declaration" => (p.child_by_field_name("pattern"), p.child_by_field_name("value")),
+            "short_var_declaration" => (p.child_by_field_name("left"), p.child_by_field_name("right")),
+            _ => (None, None),
+        };
+        if let (Some(m), Some(v)) = (motif, valeur) {
+            let dedans = v.start_byte() <= noeud.start_byte() && noeud.end_byte() <= v.end_byte();
+            let lie = content.get(m.start_byte()..m.end_byte()).is_some_and(|t| {
+                t.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|mot| mot == nom)
+            });
+            return dedans && lie;
+        }
+        a = p.parent();
+    }
+    false
 }

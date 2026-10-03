@@ -201,12 +201,12 @@ impl RelationshipResolver {
             for scope in &analysis.scopes {
                 // 1. Resolve local scope references (same file)
                 let local_refs = self.resolve_local_scope_references(scope, file_path);
-                relationships.extend(local_refs);
+                relationships.extend(merge_by_target(local_refs));
 
                 // 2. Resolve import references (cross-file)
                 if self.options.resolve_cross_file.unwrap_or(true) {
                     let import_result = self.resolve_import_references(scope, file_path, Some(analysis));
-                    relationships.extend(import_result.0);
+                    relationships.extend(merge_by_target(import_result.0));
                     unresolved_references.extend(import_result.1);
 
                     // 2b. Fallback: resolve unknown references
@@ -356,7 +356,10 @@ impl RelationshipResolver {
                     continue;
                 }
 
-                let rel_type = self.detect_relationship_type(scope, target, r.context.as_deref());
+                if is_impl_of(scope, &target.name) {
+                    continue;
+                }
+                let rel_type = detect_relationship_type_for_reference(scope, &target.name, &target.r#type, r);
 
                 relationships.push(ResolvedRelationship {
                     r#type: rel_type,
@@ -494,7 +497,10 @@ impl RelationshipResolver {
                 }
                 seen_targets.insert(target.uuid.clone());
 
-                let rel_type = self.detect_relationship_type(scope, target, r.context.as_deref());
+                if is_impl_of(scope, &target.name) {
+                    continue;
+                }
+                let rel_type = detect_relationship_type_for_reference(scope, &target.name, &target.r#type, r);
                 let is_cross_file = target.file != relative_path;
                 relation_of_target.insert(target.uuid.clone(), relationships.len());
 
@@ -593,7 +599,10 @@ impl RelationshipResolver {
                 }
 
                 if let Some(target) = target_entry {
-                    let rel_type = self.detect_relationship_type(scope, target, r.context.as_deref());
+                    if is_impl_of(scope, &target.name) {
+                        continue;
+                    }
+                    let rel_type = detect_relationship_type_for_reference(scope, &target.name, &target.r#type, r);
 
                     resolved.push(ResolvedRelationship {
                         r#type: rel_type,
@@ -1078,6 +1087,10 @@ impl RelationshipResolver {
 ///
 /// `target_type` ne sert qu'au cas C++/C# (interface ou classe de base) ; le
 /// passer vide fait retomber sur `INHERITS_FROM`, le cas majoritaire.
+///
+/// Pour une référence dont on a le genre, préférer
+/// [`detect_relationship_type_for_reference`] : cette fonction-ci devine sur
+/// le texte de la ligne et de la signature.
 pub fn detect_relationship_type_by_name(
     source: &ScopeInfo,
     target_name: &str,
@@ -1165,4 +1178,60 @@ pub fn detect_relationship_type_by_name(
 /// Le site d'une référence : son genre (lu à l'extraction) et sa ligne.
 fn site_of(r: &IdentifierReference) -> UsageSite {
     UsageSite { usage: r.usage.clone().unwrap_or(UsageKind::Other), line: Some(r.line) }
+}
+
+/// Le type de la relation qu'une référence fait vers sa cible.
+///
+/// Quand la référence porte son genre (lu sur l'AST), c'est lui qui décide si
+/// elle peut être un héritage : seule une référence `inheritance` l'est, et la
+/// devinette ne sert plus qu'à choisir entre `INHERITS_FROM` et `IMPLEMENTS`.
+/// Les heuristiques de [`detect_relationship_type_by_name`] (sous-chaîne
+/// « extends », regex `impl … for`, deux-points C++) prenaient pour un
+/// héritage tout ce qui partageait la ligne ou la signature d'un héritage
+/// (3 octobre 2026). Sans genre, on retombe sur la devinette.
+pub fn detect_relationship_type_for_reference(
+    source: &ScopeInfo,
+    target_name: &str,
+    target_type: &str,
+    r: &IdentifierReference,
+) -> RelationshipType {
+    let devine = detect_relationship_type_by_name(source, target_name, target_type, r.context.as_deref());
+    let heritage = matches!(devine, RelationshipType::INHERITSFROM | RelationshipType::IMPLEMENTS);
+    match &r.usage {
+        Some(UsageKind::Inheritance) | None => devine,
+        Some(_) if heritage => RelationshipType::CONSUMES,
+        Some(_) => devine,
+    }
+}
+
+/// Un bloc `impl X` (ou `impl Trait for X`) Rust et le type `X` sont la même
+/// entité, découpée en deux scopes du même nom : une référence de l'un vers
+/// l'autre est une auto-référence, pas un usage.
+fn is_impl_of(source: &ScopeInfo, target_name: &str) -> bool {
+    source.name == target_name && source.file_path.ends_with(".rs") && source.signature.trim_start().starts_with("impl")
+}
+
+/// Une relation par cible et par type, avec tous les sites des références
+/// qui y mènent, au lieu d'une relation par référence. L'ordre est celui de
+/// la première référence vers chaque cible.
+fn merge_by_target(rels: Vec<ResolvedRelationship>) -> Vec<ResolvedRelationship> {
+    let mut out: Vec<ResolvedRelationship> = Vec::with_capacity(rels.len());
+    let mut index: HashMap<(String, String, RelationshipType), usize> = HashMap::new();
+    for r in rels {
+        let cle = (r.from_uuid.clone(), r.to_uuid.clone(), r.r#type.clone());
+        if let Some(&i) = index.get(&cle) {
+            let sites = r.metadata.map(|m| m.sites).unwrap_or_default();
+            if let Some(m) = out[i].metadata.as_mut() {
+                for s in sites {
+                    if !m.sites.contains(&s) {
+                        m.sites.push(s);
+                    }
+                }
+            }
+            continue;
+        }
+        index.insert(cle, out.len());
+        out.push(r);
+    }
+    out
 }

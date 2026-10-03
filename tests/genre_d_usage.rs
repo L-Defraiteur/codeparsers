@@ -252,3 +252,29 @@ fn une_relation_fusionnee_garde_tous_ses_sites() {
     let s = sites(&rels, "run", "Point", RelationshipType::CONSUMES);
     assert!(s.contains(&(UsageKind::Type, Some(1))) && s.contains(&(UsageKind::Type, Some(2))), "sites : {s:?}");
 }
+
+// ---------------------------------------------------------------------------
+// Lignes des zones hors scope
+// ---------------------------------------------------------------------------
+
+#[test]
+fn une_zone_hors_scope_garde_ses_vraies_lignes() {
+    // La zone entre deux scopes est rognée de ses lignes vides avant d'être
+    // lue : ses références glissaient d'autant (port.rs, `use crate::search`
+    // à la ligne 117 sortait à la 116).
+    let chemin = "/virtual/z.rs".to_string();
+    let source = "fn a() {}\n\n\nuse std::sync::Arc;\nfn b() {}\n";
+    let analyse = ProjectParser::new(ProjectParserOptions { verbose: false }).parse_project(ParseProjectOptions {
+        root: "/virtual".to_string(),
+        files: vec![chemin.clone()],
+        content_map: Some(HashMap::from([(chemin.clone(), source.to_string())])),
+        resolve_relationships: Some(false),
+        resolver_options: None,
+    });
+    let refs: Vec<_> = analyse.files[&chemin].scopes.iter()
+        .flat_map(|s| s.identifier_references.iter())
+        .filter(|r| r.identifier == "Arc")
+        .map(|r| r.line)
+        .collect();
+    assert_eq!(refs, vec![4], "`use std::sync::Arc;` est à la ligne 4");
+}
