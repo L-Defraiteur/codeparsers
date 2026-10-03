@@ -414,7 +414,7 @@ impl RelationshipResolver {
         for r in &scope.identifier_references {
             // Only process local_scope references
             let is_local = r.kind.as_ref().map_or(false, |k| *k == IdentifierReferenceKind::LocalScope);
-            if !is_local {
+            if !is_local || acces_de_champ(r) {
                 continue;
             }
 
@@ -517,7 +517,7 @@ impl RelationshipResolver {
         for r in &refs {
             // Only process unknown references
             let is_unknown = r.kind.as_ref().map_or(false, |k| *k == IdentifierReferenceKind::Unknown);
-            if !is_unknown {
+            if !is_unknown || acces_de_champ(r) {
                 continue;
             }
 
@@ -1434,4 +1434,23 @@ fn noter_type_de_champ<K: std::hash::Hash + Eq>(table: &mut HashMap<K, Option<St
             table.insert(k, Some(t.to_string()));
         }
     }
+}
+
+/// **Un accès de champ ne vise pas une fonction homonyme.** `p.name` dans
+/// `|p| p.name == name`, `self.label` dans une méthode : un champ, pas la
+/// méthode `name` ou `label` du fichier. Seulement un non-appel, par `self`
+/// / `this` ou par une variable dont aucun type ne se lit, hors chemin
+/// (`Foo::name`) et hors import — un appel (`t.name()`) garde sa
+/// résolution. La même règle que les rendez-vous de rag3weaver.
+fn acces_de_champ(r: &IdentifierReference) -> bool {
+    let Some(q) = r.qualifier.as_deref() else { return false };
+    if r.usage == Some(UsageKind::Call) || matches!(r.kind, Some(IdentifierReferenceKind::Import)) {
+        return false;
+    }
+    let instance = matches!(q, "self" | "this");
+    let variable = !q.is_empty()
+        && q.chars().all(|c| c.is_alphanumeric() || c == '_')
+        && q.starts_with(|c: char| c.is_lowercase() || c == '_');
+    let chemin = r.context.as_deref().is_some_and(|ctx| ctx.contains(&format!("{q}::{}", r.identifier)));
+    instance || (variable && !chemin && r.qualifier_type.is_none() && r.qualifier_deferred.is_none())
 }

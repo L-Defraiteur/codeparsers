@@ -938,6 +938,24 @@ impl RustScopeExtractionParser {
         let mut reference_exclusions = self.base.build_reference_exclusions(&name, &parameters);
         let local_symbols = self.base.collect_local_symbols(node, content);
         reference_exclusions.extend(local_symbols);
+        // Une fermeture capture les paramètres et les locales de ce qui
+        // l'entoure : `name` dans `|p| p.name == name` est le paramètre de la
+        // fonction, pas une méthode `name` du fichier.
+        let mut englobant = node.parent();
+        while let Some(n) = englobant {
+            match n.kind() {
+                "closure_expression" => {
+                    reference_exclusions.extend(self.extract_closure_parameters(n, content).into_iter().map(|p| p.name));
+                }
+                "function_item" => {
+                    reference_exclusions.extend(self.extract_rust_parameters(n, content).into_iter().map(|p| p.name));
+                    reference_exclusions.extend(self.base.collect_local_symbols(n, content));
+                    break;
+                }
+                _ => {}
+            }
+            englobant = n.parent();
+        }
 
         let identifier_references = self.base.extract_identifier_references(node, content, reference_exclusions);
         let import_references = self.base.resolve_imports_for_scope(&identifier_references, file_imports);

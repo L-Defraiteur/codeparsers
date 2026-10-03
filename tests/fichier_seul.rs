@@ -157,3 +157,31 @@ fn un_dossier_du_projet_ne_cache_pas_une_bibliotheque() {
         .collect();
     assert!(libs.iter().any(|l| l == "std"), "{libs:?}");
 }
+
+/// Un accès de champ — pas un appel — par `self` ou par une variable sans
+/// type lu ne vise pas une méthode homonyme du fichier : `p.name` dans
+/// `|p| p.name == name` n'utilise pas `GraphTool::name`. La même règle que
+/// les rendez-vous de rag3weaver ; un appel garde sa résolution.
+#[test]
+fn un_acces_de_champ_ne_vise_pas_une_methode_homonyme() {
+    let source = "pub struct Tool {\n    label: String,\n}\n\nimpl Tool {\n    pub fn name(&self) -> &str {\n        &self.label\n    }\n    pub fn label(&self) -> usize {\n        self.label.len()\n    }\n}\n\nstruct P {\n    name: String,\n}\n\nfn find(ps: &[P], name: &str) -> bool {\n    ps.iter().any(|p| p.name == name)\n}\n\nfn appelle(t: &Tool, u: &Tool) -> usize {\n    t.name().len() + u.name().len()\n}\n";
+    let contenus = HashMap::from([("/virtual/lib.rs".to_string(), source.to_string())]);
+    let rels: Vec<String> = ProjectParser::new(ProjectParserOptions { verbose: false })
+        .parse_project(ParseProjectOptions {
+            root: "/virtual".to_string(),
+            files: vec!["/virtual/lib.rs".to_string()],
+            content_map: Some(contenus),
+            resolve_relationships: Some(true),
+            resolver_options: Some(options(true)),
+        })
+        .relationships
+        .map_or_else(Vec::new, |r| r.relationships)
+        .iter()
+        .filter(|r| r.r#type == RelationshipType::CONSUMES)
+        .map(cle)
+        .collect();
+    assert!(!rels.iter().any(|k| k.contains(":find → ") && k.ends_with(":name")), "p.name est un champ : {rels:#?}");
+    assert!(!rels.iter().any(|k| k.contains(":Closure → ") && k.ends_with(":name")), "p.name est un champ : {rels:#?}");
+    assert!(!rels.iter().any(|k| k.contains(":name → ") && k.ends_with(":label")), "self.label est un champ : {rels:#?}");
+    assert!(rels.iter().any(|k| k.contains(":appelle → ") && k.ends_with(":name")), "t.name() est un appel : {rels:#?}");
+}
