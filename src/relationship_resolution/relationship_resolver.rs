@@ -441,6 +441,11 @@ impl RelationshipResolver {
             });
 
             if let Some(target) = matched {
+                // Un scope ne se consomme pas lui-même (le nom d'un
+                // destructeur dans sa classe le faisait).
+                if target.uuid == source_uuid {
+                    continue;
+                }
                 // Skip if target is a child of the source scope
                 if target.parent.as_deref() == Some(&scope.name) {
                     continue;

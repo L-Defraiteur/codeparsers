@@ -2432,6 +2432,10 @@ impl BaseScopeExtractionParser {
             Some(p) => p,
             None => return false,
         };
+        // `~Foo` : le nom d'un destructeur est déclaré, pas un usage de `Foo`.
+        if parent.kind() == "destructor_name" {
+            return true;
+        }
         // If this node is the "name" field of its parent, it's a definition
         // EXCEPT for member access expressions — `obj.name` is a usage, not a definition
         if !self.node_types.member_expression.iter().any(|me| me == parent.kind()) {
