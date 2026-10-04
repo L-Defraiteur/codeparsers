@@ -4,6 +4,7 @@ use crate::scope_extraction::base_scope_extraction_parser::NodeTypeConfig;
 use crate::scope_extraction::c_scope_extraction_parser::C_BUILTIN_IDENTIFIERS;
 use crate::scope_extraction::c_scope_extraction_parser::C_STOP_WORDS;
 use crate::parallel::parser_worker::SupportedLanguage;
+use crate::scope_extraction::types::IdentifierReference;
 use crate::scope_extraction::types::ClassMemberInfo;
 use crate::scope_extraction::types::ClassMemberInfoAccessibility;
 use crate::scope_extraction::types::ClassMemberInfoMemberType;
@@ -223,6 +224,29 @@ impl CppScopeExtractionParser {
         None
     }
 
+    /// **Un nom qualifié, éclaté** : `kz::Foo::bar` → (`["kz", "Foo"]`,
+    /// `bar`). tree-sitter l'imbrique (`scope: kz`, `name: Foo::bar`) ; on
+    /// suit les champs `scope` et `name` jusqu'au bout. Un `Foo<T>` donne
+    /// `Foo` ; le nom final peut être un destructeur (`~Foo`) ou un
+    /// opérateur.
+    fn qualified_parts(&self, qi: SyntaxNode, content: &str) -> Option<(Vec<String>, String)> {
+        let mut chemin = Vec::new();
+        let mut courant = qi;
+        loop {
+            if let Some(sc) = courant.child_by_field_name("scope") {
+                let base = if sc.kind() == "template_type" { sc.child_by_field_name("name").unwrap_or(sc) } else { sc };
+                chemin.push(self.base.get_node_text(Some(base), content));
+            }
+            let nom = courant.child_by_field_name("name")?;
+            if nom.kind() == "qualified_identifier" {
+                courant = nom;
+                continue;
+            }
+            let nom = if nom.kind() == "template_function" { nom.child_by_field_name("name").unwrap_or(nom) } else { nom };
+            return Some((chemin, self.base.get_node_text(Some(nom), content)));
+        }
+    }
+
     fn extract_function_name(&self, declarator: SyntaxNode, content: &str) -> Option<String> {
         let mut cursor = declarator.walk();
         for child in declarator.children(&mut cursor) {
@@ -234,12 +258,8 @@ impl CppScopeExtractionParser {
         let mut cursor = declarator.walk();
         for child in declarator.children(&mut cursor) {
             if child.kind() == "qualified_identifier" {
-                let mut inner_cursor = child.walk();
-                let ids: Vec<SyntaxNode> = child.children(&mut inner_cursor)
-                    .filter(|c| c.kind() == "identifier")
-                    .collect();
-                if let Some(last) = ids.last() {
-                    return Some(self.base.get_node_text(Some(*last), content));
+                if let Some((_, nom)) = self.qualified_parts(child, content) {
+                    return Some(nom);
                 }
             }
         }
@@ -415,27 +435,13 @@ impl CppScopeExtractionParser {
                 .unwrap_or_else(|| "AnonymousFunction".to_string());
 
             // Detect out-of-class methods via qualified_identifier (e.g. Engine::start)
-            let qualified_parent = if let Some(d) = declarator {
-                let mut result = None;
+            // `Engine::start`, `kz::Engine::start`, `Engine<T>::start`,
+            // `Engine::~Engine` : le parent est le dernier élément du chemin.
+            let qualified_parent = declarator.and_then(|d| {
                 let mut cursor = d.walk();
-                let children: Vec<SyntaxNode> = d.children(&mut cursor).collect();
-                for c in children {
-                    if c.kind() == "qualified_identifier" {
-                        let mut inner_cursor = c.walk();
-                        let ids: Vec<SyntaxNode> = c.children(&mut inner_cursor)
-                            .filter(|ch| ch.kind() == "identifier" || ch.kind() == "namespace_identifier" || ch.kind() == "type_identifier")
-                            .collect();
-                        if ids.len() >= 2 {
-                            // "Engine::start" → qualifier = "Engine"
-                            result = Some(self.base.get_node_text(Some(ids[0]), content));
-                        }
-                        break;
-                    }
-                }
-                result
-            } else {
-                None
-            };
+                let qi = d.children(&mut cursor).find(|c| c.kind() == "qualified_identifier")?;
+                self.qualified_parts(qi, content).and_then(|(chemin, _)| chemin.last().cloned())
+            });
 
             let effective_parent = qualified_parent.or(parent);
             let mut scope = self.extract_cpp_method(node, content, depth, effective_parent, file_imports);
@@ -508,8 +514,30 @@ impl CppScopeExtractionParser {
         let local_symbols = self.base.collect_local_symbols(node, content);
         reference_exclusions.extend(local_symbols);
 
-        let identifier_references = self.base.extract_identifier_references(node, content, reference_exclusions);
+        let identifier_references = self.sans_noms_declares(node, self.base.extract_identifier_references(node, content, reference_exclusions));
         let import_references = self.base.resolve_imports_for_scope(&identifier_references, file_imports);
+
+        // Les fonctions déclarées dans le namespace (`int libre(int a);`) :
+        // des lignes du namespace, leur définition est un scope ailleurs.
+        let mut membres: Vec<ClassMemberInfo> = Vec::new();
+        if let Some(corps) = body_node {
+            let mut c = corps.walk();
+            for enfant in corps.children(&mut c) {
+                if let Some((nom, signature, retour)) = self.declaration_de_fonction(enfant, content) {
+                    membres.push(ClassMemberInfo {
+                        name: nom,
+                        r#type: retour,
+                        member_type: ClassMemberInfoMemberType::Function,
+                        accessibility: None,
+                        is_static: false,
+                        is_readonly: false,
+                        line: enfant.start_position().row + 1,
+                        signature: Some(signature),
+                        value: None,
+                    });
+                }
+            }
+        }
 
         let imports = if !import_references.is_empty() {
             let mut seen = HashSet::new();
@@ -544,7 +572,7 @@ impl CppScopeExtractionParser {
             content: node_content.clone(),
             content_dedented,
             children: vec![],
-            members: None,
+            members: (!membres.is_empty()).then_some(membres),
             enum_members: None,
             variables: None,
             dependencies: self.base.extract_dependencies(&node_content),
@@ -600,7 +628,7 @@ impl CppScopeExtractionParser {
         let local_symbols = self.base.collect_local_symbols(node, content);
         reference_exclusions.extend(local_symbols);
 
-        let identifier_references = self.base.extract_identifier_references(node, content, reference_exclusions);
+        let identifier_references = self.sans_noms_declares(node, self.base.extract_identifier_references(node, content, reference_exclusions));
         let import_references = self.base.resolve_imports_for_scope(&identifier_references, file_imports);
 
         let imports = if !import_references.is_empty() {
@@ -698,6 +726,94 @@ impl CppScopeExtractionParser {
 
     /// Extract C++ class members (fields)
 
+    /// **Une fonction déclarée, pas définie** : un `field_declaration` ou une
+    /// `declaration` dont le déclarateur — pointeurs et références traversés
+    /// — est un `function_declarator`. Rend (nom, signature sans le `;`,
+    /// type de retour).
+    fn declaration_de_fonction(&self, n: SyntaxNode, content: &str) -> Option<(String, String, Option<String>)> {
+        if !matches!(n.kind(), "field_declaration" | "declaration") {
+            return None;
+        }
+        let fd = self.declarateur_de_fonction(n)?;
+        let nom_noeud = fd.child_by_field_name("declarator")?;
+        let nom = if nom_noeud.kind() == "qualified_identifier" {
+            self.qualified_parts(nom_noeud, content)?.1
+        } else {
+            self.base.get_node_text(Some(nom_noeud), content)
+        };
+        let signature = self.base.get_node_text(Some(n), content).trim().trim_end_matches(';').trim().to_string();
+        let retour = n.child_by_field_name("type").map(|t| self.base.get_node_text(Some(t), content));
+        Some((nom, signature, retour))
+    }
+
+    fn declarateur_de_fonction(&self, n: SyntaxNode) -> Option<SyntaxNode> {
+        let mut d = n.child_by_field_name("declarator")?;
+        loop {
+            match d.kind() {
+                "function_declarator" => return Some(d),
+                "pointer_declarator" | "reference_declarator" | "init_declarator" => d = d.child_by_field_name("declarator")?,
+                _ => return None,
+            }
+        }
+    }
+
+    /// **Les références d'un conteneur, sans ce qu'il déclare** : le nom
+    /// d'une fonction déclarée, les noms de ses paramètres, le nom d'un champ
+    /// — une déclaration n'utilise rien. Les types restent : `bar(Rate r)`
+    /// se sert de `Rate`.
+    fn sans_noms_declares(&self, node: SyntaxNode, refs: Vec<IdentifierReference>) -> Vec<IdentifierReference> {
+        let mut positions: HashSet<(usize, usize)> = HashSet::new();
+        let mut pile = vec![node];
+        while let Some(n) = pile.pop() {
+            // Le corps d'une fonction définie a ses propres scopes.
+            if n.kind() == "function_definition" {
+                continue;
+            }
+            if matches!(n.kind(), "field_declaration" | "declaration") {
+                let mut noter = |x: SyntaxNode| {
+                    positions.insert((x.start_position().row + 1, x.start_position().column));
+                };
+                if let Some(fd) = self.declarateur_de_fonction(n) {
+                    if let Some(nom) = fd.child_by_field_name("declarator") {
+                        noter(nom);
+                    }
+                    if let Some(params) = fd.child_by_field_name("parameters") {
+                        let mut c = params.walk();
+                        for p in params.children(&mut c) {
+                            let mut d = p.child_by_field_name("declarator");
+                            while let Some(x) = d {
+                                match x.kind() {
+                                    "identifier" => {
+                                        noter(x);
+                                        break;
+                                    }
+                                    _ => d = x.child_by_field_name("declarator"),
+                                }
+                            }
+                        }
+                    }
+                } else if n.kind() == "field_declaration" {
+                    let mut d = n.child_by_field_name("declarator");
+                    while let Some(x) = d {
+                        match x.kind() {
+                            "field_identifier" | "identifier" => {
+                                noter(x);
+                                break;
+                            }
+                            _ => d = x.child_by_field_name("declarator"),
+                        }
+                    }
+                }
+            }
+            let mut c = n.walk();
+            pile.extend(n.children(&mut c));
+        }
+        if positions.is_empty() {
+            return refs;
+        }
+        refs.into_iter().filter(|r| !positions.contains(&(r.line, r.column.unwrap_or(usize::MAX)))).collect()
+    }
+
     pub fn extract_cpp_members(&self, node: SyntaxNode, content: &str) -> Vec<ClassMemberInfo> {
         let mut members = Vec::new();
         let mut cursor = node.walk();
@@ -724,6 +840,29 @@ impl CppScopeExtractionParser {
                             _ => current_access,
                         };
                     }
+                    continue;
+                }
+
+                // Une méthode déclarée (`int bar(int x) const;`, `~Foo();`,
+                // `virtual int f() = 0;`) : une ligne de la classe, sa
+                // définition est un scope ailleurs.
+                if let Some((nom, signature, retour)) = self.declaration_de_fonction(child, content) {
+                    members.push(ClassMemberInfo {
+                        name: nom,
+                        r#type: retour,
+                        member_type: ClassMemberInfoMemberType::Method,
+                        accessibility: match current_access {
+                            "public" => Some(ClassMemberInfoAccessibility::Public),
+                            "private" => Some(ClassMemberInfoAccessibility::Private),
+                            "protected" => Some(ClassMemberInfoAccessibility::Protected),
+                            _ => None,
+                        },
+                        is_static: false,
+                        is_readonly: false,
+                        line: child.start_position().row + 1,
+                        signature: Some(signature),
+                        value: None,
+                    });
                     continue;
                 }
 

@@ -150,6 +150,9 @@ pub enum ClassMemberInfoMemberType {
     Setter,
     Constructor,
     Value,
+    /// Une fonction libre déclarée dans un namespace (ou un en-tête) : sa
+    /// définition est un scope ailleurs, la déclaration une ligne d'ici.
+    Function,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
