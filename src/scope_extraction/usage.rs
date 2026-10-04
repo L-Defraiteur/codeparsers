@@ -197,6 +197,53 @@ pub fn typed_bindings(noeud: Node, content: &str) -> std::collections::HashMap<S
     vus.into_iter().filter_map(|(n, t)| t.map(|t| (n, t))).collect()
 }
 
+/// Un segment de chemin dans les jetons d'une macro Rust : un nom, ou
+/// `crate` / `self` / `super` / `Self`.
+fn segment_de_jetons(n: Node) -> bool {
+    matches!(n.kind(), "identifier" | "crate" | "self" | "super" | "Self")
+}
+
+/// **Dans les arguments d'une macro Rust**, il n'y a que des jetons :
+/// `assert_eq!(crate::b::run(), 2)` ne contient pas de chemin, seulement
+/// `crate`, `::`, `b`, `::`, `run`. Le qualificatif d'un nom s'y relit sur
+/// ses voisins de gauche, dans la forme qu'il a hors macro : `crate::b` pour
+/// `crate::b::run`, `x` pour `x.len()`, `self.a` pour `self.a.f()`. `None`
+/// hors d'un `token_tree`, ou sans `::` / `.` juste avant.
+pub fn token_tree_qualifier(n: Node, content: &str) -> Option<String> {
+    if n.parent()?.kind() != "token_tree" {
+        return None;
+    }
+    let sep = n.prev_sibling()?;
+    let lien = match sep.kind() {
+        "::" => "::",
+        "." => ".",
+        _ => return None,
+    };
+    let mut segments: Vec<&str> = Vec::new();
+    let mut courant = sep.prev_sibling();
+    while let Some(seg) = courant.filter(|s| segment_de_jetons(*s)) {
+        segments.push(texte(seg, content));
+        match seg.prev_sibling() {
+            Some(p) if p.kind() == lien => courant = p.prev_sibling(),
+            _ => break,
+        }
+    }
+    if segments.is_empty() {
+        return None;
+    }
+    segments.reverse();
+    Some(segments.join(lien))
+}
+
+/// Le premier nom d'un chemin ou d'une chaîne dans les jetons d'une macro
+/// (`crate` de `crate::b::f`, `o` de `o.f()`) : suivi de `::` ou `.`, sans
+/// séparateur avant lui. Hors macro, on ne le relève pas seul non plus ; les
+/// segments suivants, eux, portent le qualificatif de ceux qui les précèdent.
+pub fn token_tree_head(n: Node) -> bool {
+    let sep = |s: Node| matches!(s.kind(), "::" | ".");
+    n.parent().is_some_and(|p| p.kind() == "token_tree") && n.next_sibling().is_some_and(sep) && !n.prev_sibling().is_some_and(sep)
+}
+
 fn texte<'a>(n: Node, content: &'a str) -> &'a str {
     content.get(n.start_byte()..n.end_byte()).unwrap_or("")
 }
