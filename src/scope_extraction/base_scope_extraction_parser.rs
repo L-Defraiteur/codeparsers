@@ -2270,6 +2270,16 @@ impl BaseScopeExtractionParser {
     ) {
         let kind = current.kind();
 
+        // **Un attribut de compilation n'est pas une référence** : `#[cfg(test)]`,
+        // `#![allow(…)]`, `[[nodiscard]]`, `__attribute__((…))` parlent au
+        // compilateur, pas d'une chose du projet ; leurs noms (`cfg`, `test`)
+        // se reliaient par le nom à un homonyme. Les décorateurs (Python,
+        // TypeScript), annotations (Java) et attributs C# restent des
+        // références : ils désignent une fonction ou une classe.
+        if ATTRIBUTS_DE_COMPILATION.contains(&kind) {
+            return;
+        }
+
         // Handle JSX component references (e.g., <SessionSidebar />)
         if kind == "jsx_opening_element" || kind == "jsx_self_closing_element" {
             if let Some(name_node) = current.child_by_field_name("name") {
@@ -3547,6 +3557,18 @@ impl BaseScopeExtractionParser {
             if is_comment_line(line, &mut dans_un_bloc) {
                 continue;
             }
+            // Une ligne d'attribut de compilation (`#[cfg(test)]`,
+            // `[[nodiscard]]`) ne nomme rien du projet : même règle que
+            // `ATTRIBUTS_DE_COMPILATION` sur l'arbre.
+            let t = line.trim_start();
+            let attribut = match self.language {
+                SupportedLanguage::Rust => t.starts_with("#[") || t.starts_with("#!["),
+                SupportedLanguage::Cpp | SupportedLanguage::C => t.starts_with("[["),
+                _ => false,
+            };
+            if attribut {
+                continue;
+            }
             for m in identifier_pattern.captures_iter(line) {
                 let identifier = m[1].to_string();
 
@@ -4428,6 +4450,10 @@ fn without_comments_and_strings(texte: &str) -> String {
 /// lieu de O(position dans le fichier). Appelée pour chaque référence, la
 /// version qui relisait le fichier depuis le début rendait l'analyse
 /// quadratique (roaring.c, 26 000 lignes : 10 s, dont 0,2 pour tree-sitter).
+/// Les nœuds d'attribut de compilation (Rust, C++) : ni leurs noms ni leurs
+/// arguments ne sont des références.
+pub const ATTRIBUTS_DE_COMPILATION: &[&str] = &["attribute_item", "inner_attribute_item", "attribute_declaration", "attribute_specifier"];
+
 pub fn line_at_byte(content: &str, byte: usize) -> Option<String> {
     let octets = content.as_bytes();
     if byte > octets.len() {

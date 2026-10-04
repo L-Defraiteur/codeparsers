@@ -72,3 +72,21 @@ fn le_cas_du_ticket_garde_son_chemin() {
     let b: Vec<Option<&str>> = r.iter().filter(|(s, x)| s == "dans_macro" && x.identifier == "b").map(|(_, x)| x.qualifier.as_deref()).collect();
     assert_eq!(b, vec![Some("crate")], "{r:#?}");
 }
+
+#[test]
+fn un_attribut_de_compilation_n_est_pas_une_reference() {
+    let src = "#[cfg(test)]\nmod tests {\n    #[test]\n    #[allow(dead_code)]\n    fn t() {\n        run();\n    }\n}\n";
+    let r = refs(src);
+    let noms: BTreeSet<&str> = r.iter().map(|(_, x)| x.identifier.as_str()).collect();
+    assert!(!noms.contains("cfg") && !noms.contains("test") && !noms.contains("allow") && !noms.contains("dead_code"), "{noms:?}");
+    assert!(noms.contains("run"), "le corps reste lu : {noms:?}");
+}
+
+#[test]
+fn un_type_a_chemin_garde_son_chemin() {
+    let src = "pub fn f(d: std::sync::Arc<dyn crate::dialect::SchemaDialect>) -> crate::x::Rate {\n    todo!()\n}\n";
+    let r = refs(src);
+    let q = |nom: &str| r.iter().find(|(_, x)| x.identifier == nom).and_then(|(_, x)| x.qualifier.clone());
+    assert_eq!(q("SchemaDialect").as_deref(), Some("crate::dialect"));
+    assert_eq!(q("Rate").as_deref(), Some("crate::x"));
+}

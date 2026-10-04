@@ -1333,6 +1333,9 @@ fn visit_rust_type_refs(
     seen: &mut HashSet<String>,
     references: &mut Vec<IdentifierReference>,
 ) {
+    if crate::scope_extraction::base_scope_extraction_parser::ATTRIBUTS_DE_COMPILATION.contains(&current.kind()) {
+        return;
+    }
     // Handle type_identifier (User, Vec, Option, Result, etc.)
     if current.kind() == "type_identifier" {
         let identifier = parser.base.get_node_text(Some(current), content);
@@ -1344,6 +1347,14 @@ fn visit_rust_type_refs(
             let key = format!("{}:{}:{}", identifier, current.start_position().row + 1, current.start_position().column);
             if !seen.contains(&key) {
                 seen.insert(key);
+                // Un type à chemin (`crate::dialect::SchemaDialect`) garde son
+                // chemin en qualificatif, comme un appel par chemin : il dit
+                // de quel module vient le type.
+                let qualifier = current
+                    .parent()
+                    .filter(|p| p.kind() == "scoped_type_identifier" && p.child_by_field_name("name").is_some_and(|n| n.id() == current.id()))
+                    .and_then(|p| p.child_by_field_name("path"))
+                    .map(|chemin| parser.base.get_node_text(Some(chemin), content));
                 references.push(IdentifierReference {
                     usage: Some(crate::scope_extraction::usage::usage_of(current)),
                     qualifier_type: None,
@@ -1353,6 +1364,7 @@ fn visit_rust_type_refs(
                     line: current.start_position().row + 1,
                     column: Some(current.start_position().column),
                     context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, current.start_byte()),
+                    qualifier,
                     kind: Some(IdentifierReferenceKind::Unknown),
                     ..Default::default()
                 });
