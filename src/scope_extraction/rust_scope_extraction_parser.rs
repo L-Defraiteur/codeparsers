@@ -115,9 +115,9 @@ pub struct RustScopeExtractionParser {
 }
 
 impl RustScopeExtractionParser {
-    /// Les symboles locaux d'un scope : ceux de la base, plus les noms liés
-    /// par un motif — bras de `match`, `let`, `if let`, `while let`, `for`,
-    /// paramètres de fermeture. Une locale n'est pas l'usage d'une fonction
+    /// Les symboles locaux d'un scope : ceux de la base (dont les `let` et
+    /// les paramètres), plus les noms liés par un motif — bras de `match`,
+    /// `if let`, `while let`, `for`, paramètres de fermeture. Une locale n'est pas l'usage d'une fonction
     /// homonyme (`let s = match … { Some(s) => s }` n'utilise pas `fn s`).
     fn locaux(&self, node: SyntaxNode, content: &str) -> HashSet<String> {
         let mut out = self.base.collect_local_symbols(node, content);
@@ -1570,7 +1570,10 @@ fn collect_pattern_bindings(n: SyntaxNode, content: &str, dans_motif: bool, out:
     for (i, enfant) in n.children(&mut c).enumerate() {
         let champ = n.field_name_for_child(i as u32);
         let motif = match (n.kind(), champ) {
-            ("let_declaration", Some("pattern")) | ("let_condition", Some("pattern")) | ("for_expression", Some("pattern")) | ("match_pattern", _) | ("closure_parameters", _) | ("parameter", Some("pattern")) => true,
+            // Les `let` et les paramètres de fonction sont déjà des locales
+            // de la base (avec ses règles : l'initialiseur d'un `let`
+            // masquant appelle encore la fonction).
+            ("let_condition", Some("pattern")) | ("for_expression", Some("pattern")) | ("match_pattern", _) | ("closure_parameters", _) => true,
             // Le type ou le chemin d'un motif n'est pas une liaison.
             ("tuple_struct_pattern", Some("type")) | ("struct_pattern", Some("type")) | ("scoped_identifier", _) | ("field_pattern", Some("name")) => false,
             _ => dans_motif,
