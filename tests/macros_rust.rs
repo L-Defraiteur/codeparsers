@@ -90,3 +90,13 @@ fn un_type_a_chemin_garde_son_chemin() {
     assert_eq!(q("SchemaDialect").as_deref(), Some("crate::dialect"));
     assert_eq!(q("Rate").as_deref(), Some("crate::x"));
 }
+
+#[test]
+fn un_receveur_se_lit_a_travers_un_verrou() {
+    let src = "use std::sync::{Arc, Mutex};\n\npub fn f(catalog: Arc<Mutex<Catalog>>, v: Vec<u8>) {\n    let cat = catalog.lock().unwrap();\n    cat.ingest_entities();\n    catalog.lock().unwrap().vider();\n    let n: usize = v.iter().map(|x| *x as usize).count();\n}\n";
+    let r = refs(src);
+    let t = |nom: &str| r.iter().find(|(_, x)| x.identifier == nom).unwrap_or_else(|| panic!("{nom} absent : {r:#?}")).1.qualifier_type.clone();
+    assert_eq!(t("ingest_entities").as_deref(), Some("Catalog"), "par une variable liée à la chaîne");
+    assert_eq!(t("vider").as_deref(), Some("Catalog"), "sur la chaîne elle-même");
+    assert_eq!(t("count").as_deref(), Some("Iterator"), "une méthode d'itérateur vise un type std");
+}

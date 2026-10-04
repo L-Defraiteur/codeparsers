@@ -244,7 +244,7 @@ pub fn token_tree_head(n: Node) -> bool {
     n.parent().is_some_and(|p| p.kind() == "token_tree") && n.next_sibling().is_some_and(sep) && !n.prev_sibling().is_some_and(sep)
 }
 
-fn texte<'a>(n: Node, content: &'a str) -> &'a str {
+pub(crate) fn texte<'a>(n: Node, content: &'a str) -> &'a str {
     content.get(n.start_byte()..n.end_byte()).unwrap_or("")
 }
 
@@ -307,7 +307,7 @@ fn enclosing_impl_type(n: Node, content: &str) -> Option<String> {
 }
 
 /// Le nom qu'un motif ou un déclarateur lie, s'il en lie un seul.
-fn simple_name(n: Node, content: &str) -> Option<String> {
+pub(crate) fn simple_name(n: Node, content: &str) -> Option<String> {
     match n.kind() {
         "identifier" => {
             let t = texte(n, content);
@@ -323,7 +323,7 @@ fn simple_name(n: Node, content: &str) -> Option<String> {
 }
 
 /// Le type que construit un initialiseur, quand il se lit sur lui.
-fn initializer_type(v: Node, content: &str) -> Option<String> {
+pub(crate) fn initializer_type(v: Node, content: &str) -> Option<String> {
     match v.kind() {
         "struct_expression" => v.child_by_field_name("name").and_then(|t| base_type_name(texte(t, content))),
         "new_expression" => v

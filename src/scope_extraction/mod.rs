@@ -9,3 +9,4 @@ pub mod rust_scope_extraction_parser;
 pub mod types;
 pub mod test_marks;
 pub mod usage;
+pub mod receveur;

@@ -2244,8 +2244,15 @@ impl BaseScopeExtractionParser {
         let types = crate::scope_extraction::usage::typed_bindings(node, content);
         let retours = crate::scope_extraction::usage::return_bindings(node, content);
         let englobant = crate::scope_extraction::usage::enclosing_type(node, content);
+        // Rust : le type écrit en entier, pour lire un receveur à travers une
+        // chaîne std (`catalog.lock().unwrap()`) — voir `receveur`.
+        let pleins = if matches!(self.language, SupportedLanguage::Rust) {
+            crate::scope_extraction::receveur::typed_bindings_full(node, content)
+        } else {
+            std::collections::HashMap::new()
+        };
         let mut exclude = exclude;
-        for nom in types.keys().chain(retours.keys()) {
+        for nom in types.keys().chain(retours.keys()).chain(pleins.keys()) {
             exclude.insert(typed_binding(nom));
         }
         self.extract_identifier_references_visit(node, content, &exclude, &mut references);
@@ -2253,6 +2260,8 @@ impl BaseScopeExtractionParser {
         for r in references.values_mut() {
             if let Some(t) = r.qualifier.as_deref().and_then(|q| types.get(q)) {
                 r.qualifier_type = Some(t.clone());
+            } else if let Some(t) = r.qualifier.as_deref().and_then(|q| crate::scope_extraction::receveur::receiver_type(q, &pleins)) {
+                r.qualifier_type = Some(t);
             } else if let Some(q) = r.qualifier.as_deref() {
                 r.qualifier_deferred =
                     crate::scope_extraction::usage::deferred_for_qualifier(q, &types, &retours, englobant.as_deref(), champ_implicite);
