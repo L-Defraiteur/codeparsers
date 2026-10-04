@@ -2249,7 +2249,7 @@ impl BaseScopeExtractionParser {
         let pleins = if matches!(self.language, SupportedLanguage::Rust) {
             crate::scope_extraction::receveur::typed_bindings_full(node, content)
         } else {
-            std::collections::HashMap::new()
+            crate::scope_extraction::receveur::Bindings::default()
         };
         let champ_implicite = matches!(self.language, SupportedLanguage::Cpp);
         // Rust : une variable liée à une expression différée (`let guard =
@@ -2260,14 +2260,20 @@ impl BaseScopeExtractionParser {
             std::collections::HashMap::new()
         };
         let mut exclude = exclude;
-        for nom in types.keys().chain(retours.keys()).chain(pleins.keys()).chain(liees.keys()) {
+        for nom in types.keys().chain(retours.keys()).chain(pleins.names()).chain(liees.keys()) {
             exclude.insert(typed_binding(nom));
         }
         self.extract_identifier_references_visit(node, content, &exclude, &mut references);
+        let debuts_de_ligne: Vec<usize> = std::iter::once(0).chain(content.match_indices('\n').map(|(i, _)| i + 1)).collect();
         for r in references.values_mut() {
             if let Some(t) = r.qualifier.as_deref().and_then(|q| types.get(q)) {
                 r.qualifier_type = Some(t.clone());
-            } else if let Some(t) = r.qualifier.as_deref().and_then(|q| crate::scope_extraction::receveur::receiver_type(q, &pleins)) {
+            } else if let Some(t) = r.qualifier.as_deref().and_then(|q| {
+                // Le type d'une variable là où elle sert : la liaison visible
+                // à la position de la référence.
+                let debut_de_ligne = debuts_de_ligne.get(r.line.saturating_sub(1)).copied()?;
+                crate::scope_extraction::receveur::receiver_type(q, &pleins.at(debut_de_ligne + r.column.unwrap_or(0)))
+            }) {
                 r.qualifier_type = Some(t);
             } else if let Some(q) = r.qualifier.as_deref() {
                 r.qualifier_deferred =

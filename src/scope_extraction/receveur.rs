@@ -342,46 +342,152 @@ pub fn receiver_type(qualifier: &str, liees: &HashMap<String, String>) -> Option
     decouper(&sans_enveloppe(&t)).map(|(nom, _)| nom)
 }
 
-/// **Les variables Rust d'un scope et leur type écrit en entier** :
-/// l'annotation d'un `let` ou d'un paramètre, un initialiseur constructeur
-/// (`Foo::new()`, `Foo { … }`), ou une chaîne lue sur une variable déjà
-/// typée (`let cat = catalog.lock().unwrap();`). Un nom lié à deux types
-/// différents est écarté.
-pub fn typed_bindings_full(noeud: Node, content: &str) -> HashMap<String, String> {
-    let mut vus: HashMap<String, Option<String>> = HashMap::new();
-    collecter(noeud, content, &mut vus);
-    vus.into_iter().filter_map(|(n, t)| t.map(|t| (n, t))).collect()
+/// **Les variables Rust d'un scope, leur type écrit en entier, et où elles
+/// valent.** Une liaison vaut sur une région du texte (octets) : un `let`
+/// jusqu'à la fin de son bloc, un paramètre dans sa fonction ou sa
+/// fermeture, un `Some(x)` / `Ok(x)` dans son bras de `match` ou le bloc de
+/// son `if let` / `while let`. Un même nom redéclaré (`Some(catalog)` dans
+/// `match catalog`) a ainsi deux types, chacun là où il vaut.
+#[derive(Debug, Default, Clone)]
+pub struct Bindings(HashMap<String, Vec<(usize, usize, String)>>);
+
+impl Bindings {
+    /// Les liaisons visibles à l'octet `pos` : pour chaque nom, la plus
+    /// récente dont la région le contient.
+    pub fn at(&self, pos: usize) -> HashMap<String, String> {
+        self.0
+            .iter()
+            .filter_map(|(nom, l)| {
+                l.iter().filter(|(debut, fin, _)| *debut <= pos && pos < *fin).max_by_key(|(debut, _, _)| *debut).map(|(_, _, t)| (nom.clone(), t.clone()))
+            })
+            .collect()
+    }
+
+    pub fn names(&self) -> impl Iterator<Item = &String> {
+        self.0.keys()
+    }
+
+    fn lier(&mut self, nom: String, debut: usize, fin: usize, t: String) {
+        self.0.entry(nom).or_default().push((debut, fin, t));
+    }
 }
 
-fn collecter(n: Node, content: &str, vus: &mut HashMap<String, Option<String>>) {
-    let liaison = match n.kind() {
-        "let_declaration" => Some((n.child_by_field_name("pattern"), n.child_by_field_name("type"), n.child_by_field_name("value"))),
-        "parameter" => Some((n.child_by_field_name("pattern"), n.child_by_field_name("type"), None)),
-        _ => None,
+/// Les liaisons typées d'un scope Rust : annotation d'un `let` ou d'un
+/// paramètre, constructeur (`Foo::new()`, `Arc::new(Mutex::new(Foo::new()))`),
+/// chaîne std sur une variable typée, élément d'une `Option` ou d'un
+/// `Result` déballé par un motif.
+pub fn typed_bindings_full(noeud: Node, content: &str) -> Bindings {
+    let mut b = Bindings::default();
+    collecter(noeud, content, &mut b);
+    b
+}
+
+/// La fin de la région d'une liaison faite par `n` : son bloc, sinon son parent.
+fn fin_du_bloc(n: Node) -> usize {
+    let mut a = n.parent();
+    while let Some(p) = a {
+        if p.kind() == "block" {
+            return p.end_byte();
+        }
+        a = p.parent();
+    }
+    n.parent().map_or(n.end_byte(), |p| p.end_byte())
+}
+
+fn fonction_englobante(n: Node) -> (usize, usize) {
+    let mut a = n.parent();
+    while let Some(p) = a {
+        if matches!(p.kind(), "function_item" | "closure_expression") {
+            return (p.start_byte(), p.end_byte());
+        }
+        a = p.parent();
+    }
+    (n.start_byte(), n.end_byte())
+}
+
+/// `Some(x)` ou `Ok(x)` : le nom lié et le constructeur.
+fn motif_deballant<'a>(motif: Node<'a>, content: &str) -> Option<(String, &'static str)> {
+    let mut m = motif;
+    while m.kind() == "match_pattern" {
+        m = m.named_child(0)?;
+    }
+    if m.kind() != "tuple_struct_pattern" {
+        return None;
+    }
+    let ctor = match texte(m.child_by_field_name("type")?, content).rsplit("::").next()? {
+        "Some" => "Some",
+        "Ok" => "Ok",
+        _ => return None,
     };
-    if let Some((Some(motif), annotation, valeur)) = liaison {
-        if let Some(nom) = simple_name(motif, content) {
-            let connus: HashMap<String, String> = vus.iter().filter_map(|(k, v)| v.clone().map(|v| (k.clone(), v))).collect();
-            let type_ = annotation
-                .map(|t| texte(t, content).to_string())
-                .or_else(|| valeur.and_then(|v| type_of_chain(texte(v, content), &connus)))
-                .or_else(|| valeur.and_then(|v| initializer_type(v, content)).filter(|t| !is_wrapper(t)));
-            if let Some(t) = type_ {
-                match vus.get(&nom) {
-                    Some(Some(ancien)) if *ancien != t => {
-                        vus.insert(nom, None);
-                    }
-                    Some(None) => {}
-                    _ => {
-                        vus.insert(nom, Some(t));
+    let mut c = m.walk();
+    let liees: Vec<Node> = m.named_children(&mut c).skip(1).collect();
+    let [seul] = liees.as_slice() else { return None };
+    simple_name(*seul, content).map(|n| (n, ctor))
+}
+
+/// Le type de l'élément que `Some` / `Ok` déballe d'un `t`.
+fn element(t: &str, ctor: &str) -> Option<String> {
+    let (nom, args) = decouper(t)?;
+    match (nom.as_str(), ctor) {
+        ("Option", "Some") | ("Result", "Ok") => args.first().cloned(),
+        _ => None,
+    }
+}
+
+fn collecter(n: Node, content: &str, b: &mut Bindings) {
+    match n.kind() {
+        "let_declaration" => {
+            if let Some(nom) = n.child_by_field_name("pattern").and_then(|m| simple_name(m, content)) {
+                let valeur = n.child_by_field_name("value");
+                let connus = b.at(valeur.map_or(n.start_byte(), |v| v.start_byte()));
+                let type_ = n
+                    .child_by_field_name("type")
+                    .map(|t| texte(t, content).to_string())
+                    .or_else(|| valeur.and_then(|v| type_of_chain(texte(v, content), &connus)))
+                    .or_else(|| valeur.and_then(|v| initializer_type(v, content)).filter(|t| !is_wrapper(t)));
+                if let Some(t) = type_ {
+                    b.lier(nom, n.end_byte(), fin_du_bloc(n), t);
+                }
+            }
+        }
+        "parameter" => {
+            if let (Some(nom), Some(t)) = (n.child_by_field_name("pattern").and_then(|m| simple_name(m, content)), n.child_by_field_name("type")) {
+                let (debut, fin) = fonction_englobante(n);
+                b.lier(nom, debut, fin, texte(t, content).to_string());
+            }
+        }
+        "match_expression" => {
+            if let (Some(valeur), Some(corps)) = (n.child_by_field_name("value"), n.child_by_field_name("body")) {
+                if let Some(t) = b.at(valeur.start_byte()).get(texte(valeur, content).trim()).cloned() {
+                    let mut c = corps.walk();
+                    for bras in corps.named_children(&mut c).filter(|x| x.kind() == "match_arm") {
+                        if let Some((nom, ctor)) = bras.child_by_field_name("pattern").and_then(|m| motif_deballant(m, content)) {
+                            if let Some(e) = element(&t, ctor) {
+                                b.lier(nom, bras.start_byte(), bras.end_byte(), e);
+                            }
+                        }
                     }
                 }
             }
         }
+        "if_expression" | "while_expression" => {
+            let condition = n.child_by_field_name("condition").filter(|c| c.kind() == "let_condition");
+            let bloc = n.child_by_field_name("consequence").or_else(|| n.child_by_field_name("body"));
+            if let (Some(cond), Some(bloc)) = (condition, bloc) {
+                if let (Some(motif), Some(valeur)) = (cond.child_by_field_name("pattern"), cond.child_by_field_name("value")) {
+                    if let (Some((nom, ctor)), Some(t)) = (motif_deballant(motif, content), b.at(valeur.start_byte()).get(texte(valeur, content).trim()).cloned()) {
+                        if let Some(e) = element(&t, ctor) {
+                            b.lier(nom, bloc.start_byte(), bloc.end_byte(), e);
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
     }
     let mut c = n.walk();
     for enfant in n.named_children(&mut c) {
-        collecter(enfant, content, vus);
+        collecter(enfant, content, b);
     }
 }
 

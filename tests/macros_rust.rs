@@ -130,3 +130,15 @@ fn un_constructeur_enveloppant_se_pele() {
     let t = r.iter().find(|(_, x)| x.identifier == "ingest_entities").map(|(_, x)| x.qualifier_type.clone());
     assert_eq!(t, Some(Some("Catalog".to_string())), "{r:#?}");
 }
+
+#[test]
+fn un_motif_deballe_son_element_la_ou_il_vaut() {
+    // `estimate_of` (rag3weaver) : le paramètre `catalog: Option<&Arc<Mutex<Catalog>>>`,
+    // redéclaré par `Some(catalog)` — deux types, chacun à sa place.
+    let src = "use std::sync::{Arc, Mutex};\n\nfn estimate_of(catalog: Option<&Arc<Mutex<Catalog>>>) {\n    let x = catalog.is_some();\n    match catalog {\n        None => {}\n        Some(catalog) => {\n            let guard = catalog.lock().unwrap();\n            guard.probe_embedding_rate();\n        }\n    }\n    if let Some(c) = catalog {\n        c.lock().unwrap().vider();\n    }\n}\n";
+    let r = refs(src);
+    let t = |nom: &str| r.iter().find(|(_, x)| x.identifier == nom).unwrap_or_else(|| panic!("{nom} absent : {r:#?}")).1.qualifier_type.clone();
+    assert_eq!(t("probe_embedding_rate").as_deref(), Some("Catalog"));
+    assert_eq!(t("vider").as_deref(), Some("Catalog"));
+    assert_eq!(t("is_some").as_deref(), Some("Option"), "hors du bras, le paramètre garde son type");
+}
