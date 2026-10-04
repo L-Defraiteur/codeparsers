@@ -235,6 +235,26 @@ pub fn token_tree_qualifier(n: Node, content: &str) -> Option<String> {
     Some(segments.join(lien))
 }
 
+/// **Une lecture de champ Rust** (`r.indexed_hash`, sans appel) : en Rust, un
+/// `.x` non appelé est toujours un champ — jamais une fonction ni une
+/// méthode, qui ne se nomment pas sans `()`. Ce n'est pas une référence vers
+/// un scope : relié par le nom, il désignait la fonction homonyme. Dans une
+/// macro comme hors macro.
+pub fn rust_field_read(n: Node) -> bool {
+    let Some(p) = n.parent() else { return false };
+    match p.kind() {
+        "field_expression" => {
+            p.child_by_field_name("field").is_some_and(|f| f.id() == n.id())
+                && !p.parent().is_some_and(|g| g.kind() == "call_expression" && g.child_by_field_name("function").is_some_and(|f| f.id() == p.id()))
+        }
+        "token_tree" => {
+            n.prev_sibling().is_some_and(|s| s.kind() == ".")
+                && !n.next_sibling().is_some_and(|s| s.kind() == "token_tree" && s.child(0).is_some_and(|c| c.kind() == "("))
+        }
+        _ => false,
+    }
+}
+
 /// Le premier nom d'un chemin ou d'une chaîne dans les jetons d'une macro
 /// (`crate` de `crate::b::f`, `o` de `o.f()`) : suivi de `::` ou `.`, sans
 /// séparateur avant lui. Hors macro, on ne le relève pas seul non plus ; les
@@ -484,6 +504,12 @@ pub fn deferred_with_bindings(
     englobant: Option<&str>,
     champ_implicite: bool,
 ) -> Option<super::types::DeferredType> {
+    // `Arc::new(Mutex::new(e))…` : le différé de `e`, enveloppé.
+    if let Some((dedans, enveloppes, reste)) = super::receveur::split_constructors(q) {
+        let chaine = if reste.trim().is_empty() { Vec::new() } else { super::receveur::split_chain(&format!("x{reste}"))?.1 };
+        let base = deferred_with_bindings(&dedans, types, retours, liees, englobant, champ_implicite)?;
+        return Some(base.with_peel(enveloppes.into_iter().chain(chaine).collect()));
+    }
     if let Some((racine, chaine)) = super::receveur::split_chain(q) {
         if !chaine.is_empty() {
             let base = racine_differee(&racine, types, retours, liees, englobant, champ_implicite)?;
@@ -521,7 +547,10 @@ fn collect_deferred(
 ) {
     if n.kind() == "let_declaration" && n.child_by_field_name("type").is_none() {
         if let (Some(motif), Some(valeur)) = (n.child_by_field_name("pattern"), n.child_by_field_name("value")) {
-            if let Some(nom) = simple_name(motif, content).filter(|x| !types.contains_key(x) && !retours.contains_key(x)) {
+            // Un type connu seulement par le nom d'une enveloppe (`Arc` de
+            // `Arc::new(…)`) ne dit rien : le différé de son contenu, oui.
+            let informatif = |x: &String| types.get(x).is_some_and(|t| !super::receveur::is_wrapper(t));
+            if let Some(nom) = simple_name(motif, content).filter(|x| !informatif(x) && !retours.contains_key(x)) {
                 let connus: std::collections::HashMap<String, super::types::DeferredType> =
                     vus.iter().filter_map(|(k, v)| v.clone().map(|v| (k.clone(), v))).collect();
                 if let Some(d) = deferred_with_bindings(texte(valeur, content), types, retours, &connus, englobant, champ_implicite) {

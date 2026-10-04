@@ -2348,6 +2348,10 @@ impl BaseScopeExtractionParser {
                 if matches!(self.language, SupportedLanguage::Rust) && crate::scope_extraction::usage::token_tree_head(current) {
                     return;
                 }
+                // Une lecture de champ Rust n'est pas une référence vers un scope.
+                if matches!(self.language, SupportedLanguage::Rust) && crate::scope_extraction::usage::rust_field_read(current) {
+                    return;
+                }
 
                 // Skip the object part of member_expression (we want the property)
                 if self.node_types.member_expression.iter().any(|me| me == parent.kind()) {

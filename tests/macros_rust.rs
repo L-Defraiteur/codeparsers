@@ -113,3 +113,20 @@ fn un_retour_ou_un_champ_se_pele_par_sa_chaine() {
     assert_eq!(t("vider").as_deref(), Some("Catalog"), "retour de setup, pelé directement");
     assert_eq!(t("probe").as_deref(), Some("Catalog"), "variable liée au champ catalog, pelée");
 }
+
+#[test]
+fn une_lecture_de_champ_n_est_pas_une_reference() {
+    let src = "pub fn f(r: Fenetre) -> bool {\n    let a = r.indexed_hash.is_none();\n    assert!(r.outside && r.indexed_hash.is_none());\n    r.indexed_hash()\n}\n";
+    let r = refs(src);
+    let lignes: Vec<usize> = r.iter().filter(|(_, x)| x.identifier == "indexed_hash").map(|(_, x)| x.line).collect();
+    assert_eq!(lignes, vec![4], "seul l'appel de méthode reste : {r:#?}");
+    assert!(!r.iter().any(|(_, x)| x.identifier == "outside"), "{r:#?}");
+}
+
+#[test]
+fn un_constructeur_enveloppant_se_pele() {
+    let src = "use std::sync::{Arc, Mutex};\n\npub struct Catalog;\n\nfn catalogue(n: u32) -> Catalog {\n    todo!()\n}\n\nfn t() {\n    let catalog = Arc::new(Mutex::new(catalogue(4)));\n    catalog.lock().unwrap().ingest_entities();\n}\n";
+    let r = refs(src);
+    let t = r.iter().find(|(_, x)| x.identifier == "ingest_entities").map(|(_, x)| x.qualifier_type.clone());
+    assert_eq!(t, Some(Some("Catalog".to_string())), "{r:#?}");
+}

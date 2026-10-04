@@ -24,6 +24,40 @@ use super::usage::{initializer_type, simple_name, texte};
 /// Ce qui se traverse pour appeler une méthode : pointeurs et gardes.
 const ENVELOPPES: &[&str] = &["Box", "Arc", "Rc", "MutexGuard", "RwLockReadGuard", "RwLockWriteGuard", "Ref", "RefMut"];
 
+/// Les constructeurs qui enveloppent leur argument : `Arc::new(e)` est un
+/// `Arc<type de e>`.
+const CONSTRUCTEURS: &[&str] = &["Arc", "Rc", "Box", "Mutex", "RwLock", "RefCell", "Cell"];
+
+/// Le nom d'une enveloppe seule (`Arc`, sans son contenu) : un type qui ne
+/// dit rien de ce qu'on appelle à travers lui.
+pub fn is_wrapper(t: &str) -> bool {
+    CONSTRUCTEURS.contains(&t.trim())
+}
+
+/// **Des constructeurs enveloppants en tête** : `Arc::new(Mutex::new(e)).f()`
+/// → (`e`, [`wrap:Mutex`, `wrap:Arc`], `.f()`) — le plus intérieur d'abord.
+pub fn split_constructors(expr: &str) -> Option<(String, Vec<String>, String)> {
+    let expr = expr.trim();
+    let tete: String = expr.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':').collect();
+    let (chemin, fonction) = tete.rsplit_once("::")?;
+    let nom = chemin.rsplit("::").next()?;
+    if fonction != "new" || !CONSTRUCTEURS.contains(&nom) {
+        return None;
+    }
+    let apres = expr[tete.len()..].trim_start();
+    let fin = fin_des_parentheses(apres)?;
+    let dedans = apres[1..fin].trim().to_string();
+    let reste = apres[fin + 1..].to_string();
+    let enveloppe = format!("wrap:{nom}");
+    match split_constructors(&dedans) {
+        Some((d, mut env, r)) if r.trim().is_empty() => {
+            env.push(enveloppe);
+            Some((d, env, reste))
+        }
+        _ => Some((dedans, vec![enveloppe], reste)),
+    }
+}
+
 /// Les collections std, et leurs méthodes qui rendent un itérateur.
 const COLLECTIONS: &[&str] = &["Vec", "VecDeque", "HashMap", "BTreeMap", "HashSet", "BTreeSet", "String", "str", "Option", "Result"];
 const VERS_ITERATEUR: &[&str] = &[
@@ -98,6 +132,9 @@ fn sans_enveloppe(t: &str) -> String {
 
 /// Le type que rend la méthode `m` appelée sur un `t`, quand il est certain.
 fn methode(t: &str, m: &str) -> Option<String> {
+    if let Some(enveloppe) = m.strip_prefix("wrap:") {
+        return Some(format!("{enveloppe}<{t}>"));
+    }
     let t = sans_enveloppe(t);
     let (nom, args) = decouper(&t)?;
     let premier = || args.first().cloned();
@@ -121,7 +158,17 @@ fn methode(t: &str, m: &str) -> Option<String> {
 /// (un champ, une méthode hors de la table, une racine inconnue).
 pub fn type_of_chain(expr: &str, liees: &HashMap<String, String>) -> Option<String> {
     let expr = expr.trim();
-    let racine: String = expr.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+    if let Some((dedans, enveloppes, reste)) = split_constructors(expr) {
+        let interieur = liees.get(dedans.trim()).cloned().or_else(|| type_construit(&dedans))?;
+        let t = peel(&interieur, &enveloppes)?;
+        if reste.trim().is_empty() {
+            return Some(t);
+        }
+        let mut l = liees.clone();
+        l.insert("\u{1}".into(), t);
+        return type_of_chain(&format!("\u{1}{reste}"), &l);
+    }
+    let racine: String = expr.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '\u{1}').collect();
     let mut t = liees.get(&racine)?.clone();
     let mut reste = &expr[racine.len()..];
     loop {
@@ -275,6 +322,19 @@ pub fn type_name(t: &str) -> Option<String> {
     decouper(&sans_enveloppe(t)).map(|(nom, _)| nom)
 }
 
+/// Le type qu'un constructeur écrit nomme : `Foo::new(…)`, `Foo::default()`,
+/// `Foo { … }`.
+fn type_construit(expr: &str) -> Option<String> {
+    let tete: String = expr.trim().chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':').collect();
+    let reste = expr.trim()[tete.len()..].trim_start();
+    if reste.starts_with('{') && tete.rsplit("::").next()?.starts_with(char::is_uppercase) {
+        return Some(tete.rsplit("::").next()?.to_string());
+    }
+    let (chemin, f) = tete.rsplit_once("::")?;
+    let nom = chemin.rsplit("::").next()?;
+    (matches!(f, "new" | "default") && nom.starts_with(char::is_uppercase) && reste.starts_with('(')).then(|| nom.to_string())
+}
+
 /// Le nom du type d'un receveur, pour `qualifier_type` : la chaîne lue, ses
 /// enveloppes traversées. `None` si la chaîne ne se lit pas jusqu'au bout.
 pub fn receiver_type(qualifier: &str, liees: &HashMap<String, String>) -> Option<String> {
@@ -304,8 +364,8 @@ fn collecter(n: Node, content: &str, vus: &mut HashMap<String, Option<String>>) 
             let connus: HashMap<String, String> = vus.iter().filter_map(|(k, v)| v.clone().map(|v| (k.clone(), v))).collect();
             let type_ = annotation
                 .map(|t| texte(t, content).to_string())
-                .or_else(|| valeur.and_then(|v| initializer_type(v, content)))
-                .or_else(|| valeur.and_then(|v| type_of_chain(texte(v, content), &connus)));
+                .or_else(|| valeur.and_then(|v| type_of_chain(texte(v, content), &connus)))
+                .or_else(|| valeur.and_then(|v| initializer_type(v, content)).filter(|t| !is_wrapper(t)));
             if let Some(t) = type_ {
                 match vus.get(&nom) {
                     Some(Some(ancien)) if *ancien != t => {
@@ -372,6 +432,15 @@ mod tests {
         assert_eq!(split_chain("a.b().c"), None, "un champ après un appel");
         assert_eq!(peel("Arc<Mutex<Catalog>>", &v(&["lock", "unwrap"])).as_deref(), Some("MutexGuard<Catalog>"));
         assert_eq!(type_name("MutexGuard<Catalog>").as_deref(), Some("Catalog"));
+    }
+
+    #[test]
+    fn un_constructeur_enveloppe_son_contenu() {
+        let l = liees(&[("c", "Catalog")]);
+        assert_eq!(split_constructors("Arc::new(Mutex::new(catalogue(4)))"), Some(("catalogue(4)".into(), vec!["wrap:Mutex".into(), "wrap:Arc".into()], "".into())));
+        assert_eq!(receiver_type("Arc::new(Mutex::new(c)).lock().unwrap()", &l).as_deref(), Some("Catalog"));
+        assert_eq!(type_of_chain("std::sync::Arc::new(Mutex::new(Foo::new()))", &l).as_deref(), Some("Arc<Mutex<Foo>>"));
+        assert!(is_wrapper("Arc") && !is_wrapper("Catalog"));
     }
 
     #[test]
