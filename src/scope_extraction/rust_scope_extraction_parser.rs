@@ -115,6 +115,16 @@ pub struct RustScopeExtractionParser {
 }
 
 impl RustScopeExtractionParser {
+    /// Les symboles locaux d'un scope : ceux de la base, plus les noms liés
+    /// par un motif — bras de `match`, `let`, `if let`, `while let`, `for`,
+    /// paramètres de fermeture. Une locale n'est pas l'usage d'une fonction
+    /// homonyme (`let s = match … { Some(s) => s }` n'utilise pas `fn s`).
+    fn locaux(&self, node: SyntaxNode, content: &str) -> HashSet<String> {
+        let mut out = self.base.collect_local_symbols(node, content);
+        collect_pattern_bindings(node, content, false, &mut out);
+        out
+    }
+
     pub fn new() -> Self {
         let mut base = BaseScopeExtractionParser::new(SupportedLanguage::Rust);
         base.node_types = RUST_NODE_TYPES.clone();
@@ -337,7 +347,7 @@ impl RustScopeExtractionParser {
 
         // Build reference exclusions and extract identifier references
         let mut reference_exclusions = self.base.build_reference_exclusions(&name, &[]);
-        let local_symbols = self.base.collect_local_symbols(node, content);
+        let local_symbols = self.locaux(node, content);
         for symbol in &local_symbols {
             reference_exclusions.insert(symbol.clone());
         }
@@ -449,7 +459,7 @@ impl RustScopeExtractionParser {
 
         // Build reference exclusions and extract identifier references
         let mut reference_exclusions = self.base.build_reference_exclusions(&name, &[]);
-        let local_symbols = self.base.collect_local_symbols(node, content);
+        let local_symbols = self.locaux(node, content);
         for symbol in &local_symbols {
             reference_exclusions.insert(symbol.clone());
         }
@@ -563,7 +573,7 @@ impl RustScopeExtractionParser {
 
         // Build reference exclusions and extract identifier references
         let mut reference_exclusions = self.base.build_reference_exclusions(&name, &[]);
-        let local_symbols = self.base.collect_local_symbols(node, content);
+        let local_symbols = self.locaux(node, content);
         for symbol in &local_symbols {
             reference_exclusions.insert(symbol.clone());
         }
@@ -697,7 +707,7 @@ impl RustScopeExtractionParser {
 
         // Build reference exclusions and extract identifier references
         let mut reference_exclusions = self.base.build_reference_exclusions(&name, &[]);
-        let local_symbols = self.base.collect_local_symbols(node, content);
+        let local_symbols = self.locaux(node, content);
         for symbol in &local_symbols {
             reference_exclusions.insert(symbol.clone());
         }
@@ -936,7 +946,7 @@ impl RustScopeExtractionParser {
 
         // Build reference exclusions and extract identifier references
         let mut reference_exclusions = self.base.build_reference_exclusions(&name, &parameters);
-        let local_symbols = self.base.collect_local_symbols(node, content);
+        let local_symbols = self.locaux(node, content);
         reference_exclusions.extend(local_symbols);
         // Une fermeture capture les paramètres et les locales de ce qui
         // l'entoure : `name` dans `|p| p.name == name` est le paramètre de la
@@ -949,7 +959,7 @@ impl RustScopeExtractionParser {
                 }
                 "function_item" => {
                     reference_exclusions.extend(self.extract_rust_parameters(n, content).into_iter().map(|p| p.name));
-                    reference_exclusions.extend(self.base.collect_local_symbols(n, content));
+                    reference_exclusions.extend(self.locaux(n, content));
                     break;
                 }
                 _ => {}
@@ -1126,7 +1136,7 @@ impl RustScopeExtractionParser {
 
         // Build reference exclusions and extract identifier references
         let mut reference_exclusions = self.base.build_reference_exclusions(&name, &parameters);
-        let local_symbols = self.base.collect_local_symbols(node, content);
+        let local_symbols = self.locaux(node, content);
         for symbol in &local_symbols {
             reference_exclusions.insert(symbol.clone());
         }
@@ -1540,5 +1550,31 @@ fn collect_use_tree(n: SyntaxNode, prefixe: &[String], content: &str, ligne: usi
             }
         }
         _ => {}
+    }
+}
+
+/// Les identifiants liés par les motifs sous `n`. `dans_motif` : on est sous
+/// un motif ; un identifiant y est une liaison, sauf s'il nomme un type ou un
+/// chemin (`Some` dans `Some(s)`, `Point` dans `Point { x, .. }`).
+fn collect_pattern_bindings(n: SyntaxNode, content: &str, dans_motif: bool, out: &mut HashSet<String>) {
+    let texte = |x: SyntaxNode| content.get(x.start_byte()..x.end_byte()).unwrap_or("").to_string();
+    if dans_motif && n.kind() == "identifier" {
+        out.insert(texte(n));
+        return;
+    }
+    if dans_motif && n.kind() == "shorthand_field_identifier" {
+        out.insert(texte(n));
+        return;
+    }
+    let mut c = n.walk();
+    for (i, enfant) in n.children(&mut c).enumerate() {
+        let champ = n.field_name_for_child(i as u32);
+        let motif = match (n.kind(), champ) {
+            ("let_declaration", Some("pattern")) | ("let_condition", Some("pattern")) | ("for_expression", Some("pattern")) | ("match_pattern", _) | ("closure_parameters", _) | ("parameter", Some("pattern")) => true,
+            // Le type ou le chemin d'un motif n'est pas une liaison.
+            ("tuple_struct_pattern", Some("type")) | ("struct_pattern", Some("type")) | ("scoped_identifier", _) | ("field_pattern", Some("name")) => false,
+            _ => dans_motif,
+        };
+        collect_pattern_bindings(enfant, content, motif, out);
     }
 }
