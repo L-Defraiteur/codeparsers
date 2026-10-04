@@ -182,7 +182,36 @@ pub fn finalize(analysis: &mut ScopeFileAnalysis, content: &str) {
     crate::scope_extraction::test_marks::mark_tests(&mut analysis.scopes, content, &chemin);
     attach_import_origins(analysis);
     lire_les_types_differes(analysis);
+    au_plus_etroit(analysis);
     ordre_fixe(analysis);
+}
+
+/// **Une référence appartient au scope le plus étroit qui la contient.** Un
+/// conteneur — `mod` Rust, `namespace` C++, module nommé — portait aussi les
+/// références de ses membres, qui les portent déjà : `mod tests → name`
+/// parce qu'une fonction de test a un paramètre `name`. Il perd celles qui
+/// tombent dans les lignes d'un scope qu'il contient. Les fonctions gardent
+/// les références de leurs fermetures (un consommateur les replie), et les
+/// scopes de fichier entier ne sont pas des conteneurs.
+fn au_plus_etroit(analysis: &mut ScopeFileAnalysis) {
+    let bornes: Vec<(usize, usize)> = analysis.scopes.iter().map(|s| (s.scope_start_line, s.scope_end_line)).collect();
+    for (i, scope) in analysis.scopes.iter_mut().enumerate() {
+        let conteneur = matches!(scope.r#type, ScopeInfoType::Namespace | ScopeInfoType::Module) && !scope.name.starts_with("file_scope");
+        if !conteneur {
+            continue;
+        }
+        let (debut, fin) = bornes[i];
+        let enfants: Vec<(usize, usize)> = bornes
+            .iter()
+            .enumerate()
+            .filter(|(j, (a, b))| *j != i && *a >= debut && *b <= fin && (*a, *b) != (debut, fin))
+            .map(|(_, r)| *r)
+            .collect();
+        if enfants.is_empty() {
+            continue;
+        }
+        scope.identifier_references.retain(|r| !enfants.iter().any(|(a, b)| r.line >= *a && r.line <= *b));
+    }
 }
 
 /// **Un type différé dont la déclaration est dans le fichier se lit ici.**
