@@ -169,6 +169,112 @@ pub fn type_of_chain(expr: &str, liees: &HashMap<String, String>) -> Option<Stri
     }
 }
 
+/// **Une expression découpée en racine et chaîne** : `self.catalog.lock()
+/// .unwrap()` → (`self.catalog`, [`lock`, `unwrap`]) ; `setup()?.lock()` →
+/// (`setup()`, [`?`, `lock`]). La racine est un nom, un accès de champ sans
+/// appel (`a.b`), ou un appel direct d'un nom (`g(…)`) ; la chaîne, des
+/// appels de méthode, des `?` et des `.await`. `None` si un maillon n'en est
+/// pas un (un champ après un appel, un index…).
+pub fn split_chain(expr: &str) -> Option<(String, Vec<String>)> {
+    let expr = expr.trim();
+    let ident = |s: &str| -> usize { s.chars().take_while(|c| c.is_alphanumeric() || *c == '_').map(char::len_utf8).sum() };
+    let n = ident(expr);
+    if n == 0 {
+        return None;
+    }
+    let mut racine = expr[..n].to_string();
+    let mut reste = &expr[n..];
+    // Des champs, tant qu'ils ne sont pas appelés.
+    loop {
+        let r = reste.trim_start();
+        let Some(apres_point) = r.strip_prefix('.') else { break };
+        let apres_point = apres_point.trim_start();
+        let m = ident(apres_point);
+        if m == 0 {
+            break;
+        }
+        let suite = apres_point[m..].trim_start();
+        if suite.starts_with('(') || suite.starts_with("::<") || &apres_point[..m] == "await" {
+            break;
+        }
+        racine.push('.');
+        racine.push_str(&apres_point[..m]);
+        reste = &apres_point[m..];
+    }
+    // Ou un appel direct d'un nom.
+    if !racine.contains('.') && reste.trim_start().starts_with('(') {
+        let r = reste.trim_start();
+        let fin = fin_des_parentheses(r)?;
+        racine.push_str("()");
+        reste = &r[fin + 1..];
+    }
+    let mut chaine = Vec::new();
+    loop {
+        let r = reste.trim_start();
+        if r.is_empty() {
+            return Some((racine, chaine));
+        }
+        if let Some(x) = r.strip_prefix('?') {
+            chaine.push("?".to_string());
+            reste = x;
+            continue;
+        }
+        let x = r.strip_prefix('.')?.trim_start();
+        let m = ident(x);
+        if m == 0 {
+            return None;
+        }
+        let nom = &x[..m];
+        let suite = x[m..].trim_start();
+        if nom == "await" {
+            chaine.push("await".into());
+            reste = suite;
+            continue;
+        }
+        let suite = if suite.starts_with("::<") { &suite[suite.find('(')?..] } else { suite };
+        if !suite.starts_with('(') {
+            return None;
+        }
+        let fin = fin_des_parentheses(suite)?;
+        chaine.push(nom.to_string());
+        reste = &suite[fin + 1..];
+    }
+}
+
+/// L'indice de la parenthèse qui ferme celle qui ouvre `s`.
+fn fin_des_parentheses(s: &str) -> Option<usize> {
+    let mut prof = 0usize;
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' | '[' | '{' => prof += 1,
+            ')' | ']' | '}' => {
+                prof = prof.checked_sub(1)?;
+                if prof == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// **Un type écrit, pelé par une chaîne** : `Arc<Mutex<Catalog>>` pelé par
+/// [`lock`, `unwrap`] donne `MutexGuard<Catalog>`. `None` dès qu'un maillon
+/// n'est pas dans la table.
+pub fn peel(t: &str, chaine: &[String]) -> Option<String> {
+    let mut t = t.to_string();
+    for m in chaine {
+        t = methode(&t, m)?;
+    }
+    Some(t)
+}
+
+/// Le nom d'un type pour `qualifier_type`, à travers ses enveloppes.
+pub fn type_name(t: &str) -> Option<String> {
+    decouper(&sans_enveloppe(t)).map(|(nom, _)| nom)
+}
+
 /// Le nom du type d'un receveur, pour `qualifier_type` : la chaîne lue, ses
 /// enveloppes traversées. `None` si la chaîne ne se lit pas jusqu'au bout.
 pub fn receiver_type(qualifier: &str, liees: &HashMap<String, String>) -> Option<String> {
@@ -254,6 +360,18 @@ mod tests {
         assert_eq!(receiver_type("v.len", &l), None);
         assert_eq!(receiver_type("inconnu.lock().unwrap()", &l), None);
         assert_eq!(receiver_type("v.iter().collect::<Vec<_>>()", &l), None);
+    }
+
+    #[test]
+    fn une_expression_se_decoupe_en_racine_et_chaine() {
+        let v = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(split_chain("self.catalog.lock().unwrap()"), Some(("self.catalog".into(), v(&["lock", "unwrap"]))));
+        assert_eq!(split_chain("setup()?.lock()"), Some(("setup()".into(), v(&["?", "lock"]))));
+        assert_eq!(split_chain("catalog\n    .lock()\n    .unwrap()"), Some(("catalog".into(), v(&["lock", "unwrap"]))));
+        assert_eq!(split_chain("guard"), Some(("guard".into(), vec![])));
+        assert_eq!(split_chain("a.b().c"), None, "un champ après un appel");
+        assert_eq!(peel("Arc<Mutex<Catalog>>", &v(&["lock", "unwrap"])).as_deref(), Some("MutexGuard<Catalog>"));
+        assert_eq!(type_name("MutexGuard<Catalog>").as_deref(), Some("Catalog"));
     }
 
     #[test]

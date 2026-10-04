@@ -2251,12 +2251,19 @@ impl BaseScopeExtractionParser {
         } else {
             std::collections::HashMap::new()
         };
+        let champ_implicite = matches!(self.language, SupportedLanguage::Cpp);
+        // Rust : une variable liée à une expression différée (`let guard =
+        // self.catalog.lock().unwrap();`) en hérite.
+        let liees = if matches!(self.language, SupportedLanguage::Rust) {
+            crate::scope_extraction::usage::deferred_bindings(node, content, &types, &retours, englobant.as_deref(), champ_implicite)
+        } else {
+            std::collections::HashMap::new()
+        };
         let mut exclude = exclude;
-        for nom in types.keys().chain(retours.keys()).chain(pleins.keys()) {
+        for nom in types.keys().chain(retours.keys()).chain(pleins.keys()).chain(liees.keys()) {
             exclude.insert(typed_binding(nom));
         }
         self.extract_identifier_references_visit(node, content, &exclude, &mut references);
-        let champ_implicite = matches!(self.language, SupportedLanguage::Cpp);
         for r in references.values_mut() {
             if let Some(t) = r.qualifier.as_deref().and_then(|q| types.get(q)) {
                 r.qualifier_type = Some(t.clone());
@@ -2264,7 +2271,7 @@ impl BaseScopeExtractionParser {
                 r.qualifier_type = Some(t);
             } else if let Some(q) = r.qualifier.as_deref() {
                 r.qualifier_deferred =
-                    crate::scope_extraction::usage::deferred_for_qualifier(q, &types, &retours, englobant.as_deref(), champ_implicite);
+                    crate::scope_extraction::usage::deferred_with_bindings(q, &types, &retours, &liees, englobant.as_deref(), champ_implicite);
             }
         }
         references.into_values().collect()

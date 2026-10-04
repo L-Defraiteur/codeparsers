@@ -233,7 +233,9 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
             if m.member_type != ClassMemberInfoMemberType::Property {
                 continue;
             }
-            let Some(t) = m.r#type.as_deref().and_then(base_type_name) else { continue };
+            // Le type écrit en entier : une chaîne (`self.c.lock().unwrap()`)
+            // se pèle sur lui ; sans chaîne, son nom de base.
+            let Some(t) = m.r#type.as_deref().map(str::trim).filter(|t| !t.is_empty()).map(str::to_string) else { continue };
             champs
                 .entry((s.name.clone(), m.name.clone()))
                 .and_modify(|v| {
@@ -258,15 +260,24 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
             if r.qualifier_type.is_some() {
                 continue;
             }
+            let nom_du_type = |ecrit: &str, peel: &[String]| -> Option<String> {
+                if peel.is_empty() {
+                    base_type_name(ecrit)
+                } else {
+                    crate::scope_extraction::receveur::peel(ecrit, peel).and_then(|t| crate::scope_extraction::receveur::type_name(&t))
+                }
+            };
             let lu = match r.qualifier_deferred.as_ref() {
-                Some(DeferredType::FieldOf { owner, field }) => champs.get(&(owner.clone(), field.clone())).cloned().flatten(),
-                Some(DeferredType::ReturnOf { function, unwrap }) => retours.get(function).cloned().flatten().and_then(|(ecrit, parent)| {
+                Some(DeferredType::FieldOf { owner, field, peel }) => {
+                    champs.get(&(owner.clone(), field.clone())).cloned().flatten().and_then(|ecrit| nom_du_type(&ecrit, peel))
+                }
+                Some(DeferredType::ReturnOf { function, unwrap, peel }) => retours.get(function).cloned().flatten().and_then(|(ecrit, parent)| {
                     let ecrit = if *unwrap {
                         crate::relationship_resolution::relationship_resolver::first_generic_argument(&ecrit, &["Result", "Option"])?
                     } else {
                         ecrit
                     };
-                    let t = base_type_name(&ecrit)?;
+                    let t = nom_du_type(&ecrit, peel)?;
                     if t == "Self" { parent } else { Some(t) }
                 }),
                 None => None,

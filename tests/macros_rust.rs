@@ -100,3 +100,16 @@ fn un_receveur_se_lit_a_travers_un_verrou() {
     assert_eq!(t("vider").as_deref(), Some("Catalog"), "sur la chaîne elle-même");
     assert_eq!(t("count").as_deref(), Some("Iterator"), "une méthode d'itérateur vise un type std");
 }
+
+#[test]
+fn un_retour_ou_un_champ_se_pele_par_sa_chaine() {
+    // Les deux arêtes qui bloquaient le filtre d'arête dans `impact` :
+    // `setup().lock().unwrap().ingest_entities()` (retour d'une fonction) et
+    // `guard.probe()` avec `guard = self.catalog.lock().unwrap()` (un champ).
+    let src = "use std::sync::{Arc, Mutex};\n\npub struct Catalog;\n\npub struct Svc {\n    catalog: Arc<Mutex<Catalog>>,\n}\n\nfn setup() -> Arc<Mutex<Catalog>> {\n    todo!()\n}\n\nimpl Svc {\n    fn f(&self) {\n        let guard = self.catalog.lock().unwrap();\n        guard.probe();\n    }\n}\n\nfn t() {\n    let catalog = setup();\n    catalog.lock().unwrap().ingest_entities();\n    setup().lock().expect(\"verrou\").vider();\n}\n";
+    let r = refs(src);
+    let t = |nom: &str| r.iter().find(|(_, x)| x.identifier == nom).unwrap_or_else(|| panic!("{nom} absent : {r:#?}")).1.qualifier_type.clone();
+    assert_eq!(t("ingest_entities").as_deref(), Some("Catalog"), "variable liée au retour de setup, pelée");
+    assert_eq!(t("vider").as_deref(), Some("Catalog"), "retour de setup, pelé directement");
+    assert_eq!(t("probe").as_deref(), Some("Catalog"), "variable liée au champ catalog, pelée");
+}

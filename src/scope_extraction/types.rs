@@ -119,11 +119,39 @@ pub struct ImportOrigin {
 pub enum DeferredType {
     /// Le type déclaré du champ `field` du type `owner` (`self.store`,
     /// `v.store` avec `v: Svc`, un champ implicite en C++).
-    FieldOf { owner: String, field: String },
+    FieldOf {
+        owner: String,
+        field: String,
+        /// Les méthodes appelées ensuite, à peler sur le type lu
+        /// (`self.c.lock().unwrap()` : [`lock`, `unwrap`]) — voir `receveur`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        peel: Vec<String>,
+    },
     /// Le type de retour déclaré de la fonction `function` (`let s =
     /// make_store()`, `make_store().get()`) ; `unwrap` quand l'appel est
     /// suivi de `?`, qui déballe un `Result` ou une `Option`.
-    ReturnOf { function: String, unwrap: bool },
+    ReturnOf {
+        function: String,
+        unwrap: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        peel: Vec<String>,
+    },
+}
+
+impl DeferredType {
+    /// La même lecture, suivie de ces méthodes.
+    pub fn with_peel(mut self, suite: Vec<String>) -> Self {
+        match &mut self {
+            DeferredType::FieldOf { peel, .. } | DeferredType::ReturnOf { peel, .. } => peel.extend(suite),
+        }
+        self
+    }
+
+    pub fn peel(&self) -> &[String] {
+        match self {
+            DeferredType::FieldOf { peel, .. } | DeferredType::ReturnOf { peel, .. } => peel,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

@@ -941,8 +941,14 @@ impl RelationshipResolver {
         if let Some(t) = &r.qualifier_type {
             return Some(t.clone());
         }
-        match r.qualifier_deferred.as_ref()? {
-            DeferredType::FieldOf { owner, field } => {
+        let differe = r.qualifier_deferred.as_ref()?;
+        // Une chaîne à peler demande le type écrit en entier, que ces tables
+        // ne gardent pas : elle ne se lit que dans le fichier.
+        if !differe.peel().is_empty() {
+            return None;
+        }
+        match differe {
+            DeferredType::FieldOf { owner, field, .. } => {
                 // « Fichier seul » : le champ doit être déclaré dans ce
                 // fichier — sa déclaration ailleurs dépend du paquet.
                 if self.cross_file() {
@@ -951,7 +957,7 @@ impl RelationshipResolver {
                     self.field_types_local.get(&(relative_path.to_string(), owner.clone(), field.clone())).cloned().flatten()
                 }
             }
-            DeferredType::ReturnOf { function, unwrap } => {
+            DeferredType::ReturnOf { function, unwrap, .. } => {
                 let fonctions: Vec<&ScopeMappingEntry> = self
                     .scope_mapping
                     .get(function)?

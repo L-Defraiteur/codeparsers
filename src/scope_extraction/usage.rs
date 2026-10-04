@@ -468,6 +468,90 @@ pub fn deferred_for_qualifier(
     englobant: Option<&str>,
     champ_implicite: bool,
 ) -> Option<super::types::DeferredType> {
+    deferred_with_bindings(q, types, retours, &std::collections::HashMap::new(), englobant, champ_implicite)
+}
+
+/// [`deferred_for_qualifier`], plus deux choses : une **chaîne** après la
+/// racine (`self.catalog.lock().unwrap()`, `setup()?.lock()`) se garde dans
+/// `peel`, que le lecteur pèlera sur le type lu ; une variable **liée** à une
+/// telle expression (`let guard = self.catalog.lock().unwrap();`) en hérite
+/// (`liees`, voir [`deferred_bindings`]).
+pub fn deferred_with_bindings(
+    q: &str,
+    types: &std::collections::HashMap<String, String>,
+    retours: &std::collections::HashMap<String, (String, bool)>,
+    liees: &std::collections::HashMap<String, super::types::DeferredType>,
+    englobant: Option<&str>,
+    champ_implicite: bool,
+) -> Option<super::types::DeferredType> {
+    if let Some((racine, chaine)) = super::receveur::split_chain(q) {
+        if !chaine.is_empty() {
+            let base = racine_differee(&racine, types, retours, liees, englobant, champ_implicite)?;
+            return Some(base.with_peel(chaine));
+        }
+    }
+    racine_differee(q, types, retours, liees, englobant, champ_implicite)
+}
+
+/// **Les variables liées à une expression différée** : `let guard =
+/// self.catalog.lock().unwrap();`, `let c = setup();` suivi de
+/// `c.lock()`… Le nom, et ce qu'il faudra lire ailleurs pour le typer.
+pub fn deferred_bindings(
+    noeud: Node,
+    content: &str,
+    types: &std::collections::HashMap<String, String>,
+    retours: &std::collections::HashMap<String, (String, bool)>,
+    englobant: Option<&str>,
+    champ_implicite: bool,
+) -> std::collections::HashMap<String, super::types::DeferredType> {
+    let mut vus: std::collections::HashMap<String, Option<super::types::DeferredType>> = std::collections::HashMap::new();
+    collect_deferred(noeud, content, types, retours, englobant, champ_implicite, &mut vus);
+    vus.into_iter().filter_map(|(n, d)| d.map(|d| (n, d))).collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_deferred(
+    n: Node,
+    content: &str,
+    types: &std::collections::HashMap<String, String>,
+    retours: &std::collections::HashMap<String, (String, bool)>,
+    englobant: Option<&str>,
+    champ_implicite: bool,
+    vus: &mut std::collections::HashMap<String, Option<super::types::DeferredType>>,
+) {
+    if n.kind() == "let_declaration" && n.child_by_field_name("type").is_none() {
+        if let (Some(motif), Some(valeur)) = (n.child_by_field_name("pattern"), n.child_by_field_name("value")) {
+            if let Some(nom) = simple_name(motif, content).filter(|x| !types.contains_key(x) && !retours.contains_key(x)) {
+                let connus: std::collections::HashMap<String, super::types::DeferredType> =
+                    vus.iter().filter_map(|(k, v)| v.clone().map(|v| (k.clone(), v))).collect();
+                if let Some(d) = deferred_with_bindings(texte(valeur, content), types, retours, &connus, englobant, champ_implicite) {
+                    match vus.get(&nom) {
+                        Some(Some(ancien)) if *ancien != d => {
+                            vus.insert(nom, None);
+                        }
+                        Some(None) => {}
+                        _ => {
+                            vus.insert(nom, Some(d));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut c = n.walk();
+    for enfant in n.named_children(&mut c) {
+        collect_deferred(enfant, content, types, retours, englobant, champ_implicite, vus);
+    }
+}
+
+fn racine_differee(
+    q: &str,
+    types: &std::collections::HashMap<String, String>,
+    retours: &std::collections::HashMap<String, (String, bool)>,
+    liees: &std::collections::HashMap<String, super::types::DeferredType>,
+    englobant: Option<&str>,
+    champ_implicite: bool,
+) -> Option<super::types::DeferredType> {
     use super::types::DeferredType;
     let ident = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_');
     let q = q.trim();
@@ -477,7 +561,7 @@ pub fn deferred_for_qualifier(
                 continue;
             }
             let proprietaire = if matches!(racine, "self" | "this") { englobant.map(str::to_string) } else { types.get(racine).cloned() };
-            return proprietaire.map(|owner| DeferredType::FieldOf { owner, field: champ.to_string() });
+            return proprietaire.map(|owner| DeferredType::FieldOf { owner, field: champ.to_string(), peel: Vec::new() });
         }
     }
     if matches!(q, "self" | "this" | "Self" | "super" | "cls") {
@@ -485,10 +569,13 @@ pub fn deferred_for_qualifier(
     }
     if ident(q) {
         if let Some((f, deballe)) = retours.get(q) {
-            return Some(DeferredType::ReturnOf { function: f.clone(), unwrap: *deballe });
+            return Some(DeferredType::ReturnOf { function: f.clone(), unwrap: *deballe, peel: Vec::new() });
+        }
+        if let Some(d) = liees.get(q) {
+            return Some(d.clone());
         }
         if champ_implicite && !types.contains_key(q) {
-            return englobant.map(|owner| DeferredType::FieldOf { owner: owner.to_string(), field: q.to_string() });
+            return englobant.map(|owner| DeferredType::FieldOf { owner: owner.to_string(), field: q.to_string(), peel: Vec::new() });
         }
         return None;
     }
@@ -500,7 +587,7 @@ pub fn deferred_for_qualifier(
     let ouverture = corps.find('(')?;
     let nom = &corps[..ouverture];
     (ident(nom) && corps.ends_with(')') && !nom.starts_with(|c: char| c.is_uppercase()))
-        .then(|| DeferredType::ReturnOf { function: nom.to_string(), unwrap: deballe })
+        .then(|| DeferredType::ReturnOf { function: nom.to_string(), unwrap: deballe, peel: Vec::new() })
 }
 
 /// **Les champs typés d'une classe Python** : `x: T` dans le corps de la
