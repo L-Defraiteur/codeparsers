@@ -28,7 +28,23 @@ dépôts, et ce qu'il ne sait pas comprendre. Le témoin du chantier
   non résolues (`RelationshipResolutionResult::unresolved_references`), par
   raison et par genre du scope qui les porte. **Doit descendre.**
 
-## Rejouer
+## Rejouer : avant / après, sur le même corpus
+
+```
+banc/comparer.sh [commit]          # défaut : origin/master
+banc/comparer.sh [commit] --ecrire # et réécrire les références
+```
+
+Bâtit le banc au commit de référence et à l'état courant, les fait tourner
+sur les mêmes fichiers, et échoue si une mesure recule. C'est la
+vérification d'un lot : nos dépôts changent (rag3db et rag3weaver avec les
+autres sessions, codeparsers se mesure lui-même), une ligne de référence
+fixe ne juge que sur un corpus fixe. Les fichiers de `banc/` disent l'état
+publié, réécrits avec `--ecrire` dans le commit du lot.
+
+## Un dépôt à la main
+
+
 
 ```
 cargo run --release --example banc_couverture -- rag3db-src ../rag3db/src --verifier banc/rag3db-src.txt

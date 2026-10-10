@@ -3575,6 +3575,9 @@ impl BaseScopeExtractionParser {
         let identifier_pattern = cached_regex!(r"\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b");
         let base = base_line as usize;
         let mut dans_un_bloc = false;
+        // Une directive du préprocesseur (C, C++) ne nomme rien du projet,
+        // ni sa suite de ligne (`\` en fin de ligne d'un `#define`).
+        let mut dans_une_directive = false;
 
         for (line_index, line) in content.split('\n').enumerate() {
             // Une ligne de commentaire ne nomme rien qu'elle utilise : « is »
@@ -3594,6 +3597,13 @@ impl BaseScopeExtractionParser {
             };
             if attribut {
                 continue;
+            }
+            if matches!(self.language, SupportedLanguage::Cpp | SupportedLanguage::C) {
+                let directive = dans_une_directive || t.starts_with('#');
+                dans_une_directive = directive && line.trim_end().ends_with('\\');
+                if directive {
+                    continue;
+                }
             }
             for m in identifier_pattern.captures_iter(line) {
                 let identifier = m[1].to_string();
