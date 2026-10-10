@@ -193,12 +193,104 @@ fn rapport_des_trous(
     }
 }
 
+/// **D'où vient le receveur** d'une méthode non résolue (`x.f()`) : la
+/// racine de son qualificatif rapportée à ce que le scope déclare. Dit quel
+/// lot fermerait le trou (B2d).
+fn genre_du_receveur(
+    s: &ScopeInfo,
+    x: &codeparsers::scope_extraction::types::IdentifierReference,
+    champs: &HashMap<String, HashSet<String>>,
+    types_du_projet: &HashSet<String>,
+) -> &'static str {
+    let q = x.qualifier.as_deref().unwrap_or("");
+    if let Some(t) = x.qualifier_type.as_deref().filter(|t| !t.is_empty()) {
+        // Le nom de base : sans gabarit, pointeur, référence ni espace de noms.
+        let sans_gabarit = t.split('<').next().unwrap_or(t);
+        let base = sans_gabarit.trim_matches(|c: char| c == '&' || c == '*' || c.is_whitespace()).rsplit("::").next().unwrap_or("").trim_start_matches("const ").trim();
+        return if types_du_projet.contains(base) { "receveur typé (type du projet), méthode non reliée" } else { "receveur typé externe (std, bibliothèque)" };
+    }
+    if x.qualifier_deferred.is_some() {
+        return "type différé (champ, retour)";
+    }
+    if q.contains('(') {
+        return "retour d'appel (f().g())";
+    }
+    if q.contains('[') {
+        return "indexation (v[i].f())";
+    }
+    let racine = q.split(|c: char| c == '.' || c == ':' || c == '-' || c == '>').find(|r| !r.is_empty()).unwrap_or("");
+    if matches!(racine, "self" | "this" | "Self") {
+        return "self / this";
+    }
+    if let Some(p) = s.parameters.iter().find(|p| p.name == racine) {
+        return if p.r#type.as_deref().is_some_and(|t| !t.is_empty()) { "paramètre typé (type non retenu)" } else { "paramètre sans type (fermeture, lambda auto)" };
+    }
+    if let Some(v) = s.variables.iter().flatten().find(|v| v.name == racine) {
+        return match v.r#type.as_deref() {
+            Some(t) if !t.is_empty() && t != "auto" && !t.starts_with("auto") => "local typé (type non retenu)",
+            _ => "local sans type (auto, let = …)",
+        };
+    }
+    let classe = s.parent.as_deref().map(|p| p.rsplit("::").next().unwrap_or(p)).unwrap_or("");
+    if champs.get(classe).is_some_and(|c| c.contains(racine)) {
+        return "champ de la classe (sans this)";
+    }
+    if racine.chars().next().is_some_and(|c| c.is_uppercase()) {
+        return "nom en majuscule (type, enum, global)";
+    }
+    "autre (boucle, motif, capture, global)"
+}
+
+fn rapport_des_receveurs(mode: &str, scopes: &[&ScopeInfo], non_resolues: &HashSet<(String, String, String)>, racine_commune: &str) {
+    let mut champs: HashMap<String, HashSet<String>> = HashMap::new();
+    let types_du_projet: HashSet<String> = scopes
+        .iter()
+        .filter(|s| matches!(format!("{:?}", s.r#type).as_str(), "Class" | "Struct" | "Interface" | "Enum" | "Trait" | "TypeAlias"))
+        .map(|s| s.name.clone())
+        .collect();
+    for s in scopes {
+        for m in s.members.iter().flatten() {
+            champs.entry(s.name.clone()).or_default().insert(m.name.clone());
+        }
+    }
+    let mut par_genre: BTreeMap<&'static str, (usize, Vec<String>)> = BTreeMap::new();
+    let mut total = 0usize;
+    for s in scopes {
+        let f = s.file_path.strip_prefix(racine_commune).unwrap_or(&s.file_path).trim_start_matches('/').to_string();
+        let mut vus: HashSet<&str> = HashSet::new();
+        for x in &s.identifier_references {
+            let appel = x.usage.as_ref().is_some_and(|u| format!("{u:?}") == "Call");
+            if !appel || x.qualifier.as_deref().unwrap_or("").is_empty() || !vus.insert(x.identifier.as_str()) {
+                continue;
+            }
+            if !non_resolues.contains(&(f.clone(), s.name.clone(), x.identifier.clone())) {
+                continue;
+            }
+            total += 1;
+            let e = par_genre.entry(genre_du_receveur(s, x, &champs, &types_du_projet)).or_default();
+            e.0 += 1;
+            if e.1.len() < 4 {
+                e.1.push(format!("`{}.{}` ({}:{})", x.qualifier.as_deref().unwrap_or(""), x.identifier, f.rsplit('/').next().unwrap_or(""), x.line));
+            }
+        }
+    }
+    println!("\n## Les receveurs des méthodes non résolues ({mode}) : {total}\n");
+    println!("| d'où vient le receveur | non résolues | exemples |\n|---|---|---|");
+    let mut lignes: Vec<_> = par_genre.into_iter().collect();
+    lignes.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+    for (g, (n, ex)) in lignes {
+        println!("| {g} | {n} | {} |", ex.join(", "));
+    }
+}
+
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let mut ecrire = None;
     let mut verifier = None;
     let trous = args.iter().any(|a| a == "--trous");
     args.retain(|a| a != "--trous");
+    let receveurs = args.iter().any(|a| a == "--receveurs");
+    args.retain(|a| a != "--receveurs");
     let mut appelants_de = None;
     if let Some(i) = args.iter().position(|a| a == "--appelants") {
         appelants_de = args.get(i + 1).cloned();
@@ -332,6 +424,9 @@ fn main() {
         }
         if trous {
             rapport_des_trous(mode, &rel.unresolved_references, &refs, &qualifs);
+        }
+        if receveurs {
+            rapport_des_receveurs(mode, &scopes, &non_resolues, &racine_commune);
         }
         // Les appelants d'une méthode (`Classe::methode`) : les CONSUMES vers
         // un scope de ce nom dont le parent est cette classe.
