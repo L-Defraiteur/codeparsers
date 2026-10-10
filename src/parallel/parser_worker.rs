@@ -182,6 +182,7 @@ pub fn finalize(analysis: &mut ScopeFileAnalysis, content: &str) {
     crate::scope_extraction::test_marks::mark_tests(&mut analysis.scopes, content, &chemin);
     attach_import_origins(analysis);
     lire_les_types_differes(analysis);
+    relever_les_verrous_par_appel(analysis);
     au_plus_etroit(analysis);
     ordre_fixe(analysis);
 }
@@ -222,6 +223,60 @@ fn au_plus_etroit(analysis: &mut ScopeFileAnalysis) {
 /// seul ne relie plus entre fichiers, et les rendez-vous de rag3weaver ne
 /// savent rien des types différés. Un nom déclaré deux fois avec deux types
 /// ne donne rien : on ne devine pas.
+/// **Les verrous pris par un appel** (`self.inner.lock()`,
+/// `mtx.try_lock()` sur un membre C++, `self.idx.read()`) : une référence de
+/// genre `Lock` / `SharedLock` au champ, quand son type est déclaré dans le
+/// fichier et que c'est un mutex (ou un `RwLock` pour `read` / `write`). Sans
+/// type, rien : `weak.lock()` n'est pas un verrou.
+fn relever_les_verrous_par_appel(analysis: &mut ScopeFileAnalysis) {
+    use crate::scope_extraction::types::{ClassMemberInfoMemberType, IdentifierReference, UsageKind};
+    use std::collections::HashMap;
+    let mut champs: HashMap<(String, String), String> = HashMap::new();
+    for s in &analysis.scopes {
+        for m in s.members.iter().flatten().filter(|m| m.member_type == ClassMemberInfoMemberType::Property) {
+            if let Some(t) = m.r#type.as_deref() {
+                champs.insert((s.name.clone(), m.name.clone()), t.to_string());
+            }
+        }
+    }
+    if champs.is_empty() {
+        return;
+    }
+    for s in &mut analysis.scopes {
+        let Some(classe) = s.parent.clone() else { continue };
+        let classe = classe.rsplit("::").next().unwrap_or(&classe).to_string();
+        let mut neuves: Vec<IdentifierReference> = Vec::new();
+        for r in &s.identifier_references {
+            if r.usage != Some(UsageKind::Call) {
+                continue;
+            }
+            let Some(q) = r.qualifier.as_deref() else { continue };
+            // `self.x`, `this->x`, `this.x`, ou `x` nu (un membre C++).
+            let (proprietaire, champ) = match q.split_once("->").or_else(|| q.split_once('.')) {
+                Some((p, c)) if matches!(p, "self" | "this") => (p, c),
+                None => ("this", q),
+                _ => continue,
+            };
+            if !champ.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                continue;
+            }
+            let Some(type_du_champ) = champs.get(&(classe.clone(), champ.to_string())) else { continue };
+            if let Some(genre) = crate::scope_extraction::usage::lock_by_call(&r.identifier, type_du_champ) {
+                neuves.push(IdentifierReference {
+                    identifier: champ.to_string(),
+                    line: r.line,
+                    column: r.column,
+                    context: r.context.clone(),
+                    qualifier: Some(proprietaire.to_string()),
+                    usage: Some(genre),
+                    ..Default::default()
+                });
+            }
+        }
+        s.identifier_references.extend(neuves);
+    }
+}
+
 fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
     use crate::scope_extraction::types::{ClassMemberInfoMemberType, DeferredType};
     use crate::scope_extraction::usage::base_type_name;

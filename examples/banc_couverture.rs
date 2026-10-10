@@ -106,7 +106,7 @@ fn pct(a: usize, b: usize) -> String {
 
 /// Le bon sens d'une mesure : +1 elle doit monter, -1 descendre, 0 neutre.
 fn sens(cle: &str) -> i32 {
-    if cle.ends_with(".relies_pct") || cle.contains(".appelants.") {
+    if cle.ends_with(".relies_pct") || cle.contains(".appelants.") || cle.starts_with("verrous.") {
         1
     } else if cle.ends_with(".erreur_pct") || cle.contains(".non_resolues") {
         -1
@@ -126,6 +126,7 @@ fn forme(nom: &str, usage: &str, qualif: Option<&str>) -> &'static str {
         return "macro ou constante (MAJUSCULES)";
     }
     match (usage, qualif) {
+        ("lock" | "sharedlock", _) => "verrou sur un champ (au consommateur)",
         ("import", _) => "import",
         ("type", _) => "type",
         ("inheritance", _) => "héritage",
@@ -313,6 +314,22 @@ fn main() {
             }
         }
         m.insert(format!("{mode}.non_resolues"), rel.unresolved_references.len().to_string());
+        if !croise {
+            let (mut exclusifs, mut partages) = (0usize, 0usize);
+            for s in &scopes {
+                // Par le nom du genre : le banc se compile aussi contre un
+                // codeparsers d'avant (banc/comparer.sh), qui n'a pas ces genres.
+                for x in &s.identifier_references {
+                    match x.usage.as_ref().map(|u| format!("{u:?}")).as_deref() {
+                        Some("Lock") => exclusifs += 1,
+                        Some("SharedLock") => partages += 1,
+                        _ => {}
+                    }
+                }
+            }
+            m.insert("verrous.exclusifs".into(), exclusifs.to_string());
+            m.insert("verrous.partages".into(), partages.to_string());
+        }
         if trous {
             rapport_des_trous(mode, &rel.unresolved_references, &refs, &qualifs);
         }

@@ -235,6 +235,76 @@ pub fn token_tree_qualifier(n: Node, content: &str) -> Option<String> {
     Some(segments.join(lien))
 }
 
+/// **Les gardes de verrou RAII d'un scope C++** : `std::unique_lock lck{mtx}`,
+/// `std::lock_guard<std::mutex> g(this->mtx)`, `std::scoped_lock s(a, o->b)`.
+/// Pour chaque mutex nommé : (champ, propriétaire, partagé, nœud du champ) —
+/// `this` pour un nom nu ou `this->x`. `std::defer_lock` et ses pareils ne
+/// sont pas des mutex. Les fonctions et classes imbriquées ont leurs propres
+/// gardes : on n'y descend pas.
+pub fn cpp_lock_guards<'a>(racine: Node<'a>, content: &str) -> Vec<(String, String, bool, Node<'a>)> {
+    let mut out = Vec::new();
+    let mut pile = vec![racine];
+    while let Some(n) = pile.pop() {
+        if n.id() != racine.id() && matches!(n.kind(), "function_definition" | "lambda_expression" | "class_specifier" | "struct_specifier") {
+            continue;
+        }
+        if n.kind() == "declaration" {
+            let genre = n.child_by_field_name("type").map(|t| {
+                let t = texte(t, content);
+                let sans_gabarit = t.split('<').next().unwrap_or(t);
+                sans_gabarit.rsplit("::").next().unwrap_or(sans_gabarit).trim().to_string()
+            });
+            let partage = match genre.as_deref() {
+                Some("unique_lock" | "lock_guard" | "scoped_lock") => Some(false),
+                Some("shared_lock") => Some(true),
+                _ => None,
+            };
+            if let Some(partage) = partage {
+                let mut c = n.walk();
+                for d in n.children_by_field_name("declarator", &mut c) {
+                    let Some(valeur) = d.child_by_field_name("value") else { continue };
+                    let mut c2 = valeur.walk();
+                    for arg in valeur.named_children(&mut c2) {
+                        match arg.kind() {
+                            "identifier" => out.push((texte(arg, content).to_string(), "this".to_string(), partage, arg)),
+                            "field_expression" => {
+                                if let (Some(objet), Some(champ)) = (arg.child_by_field_name("argument"), arg.child_by_field_name("field")) {
+                                    out.push((texte(champ, content).to_string(), texte(objet, content).to_string(), partage, champ));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        let mut c = n.walk();
+        for e in n.named_children(&mut c) {
+            pile.push(e);
+        }
+    }
+    out
+}
+
+/// **Un appel de verrou sur un champ** (`self.inner.lock()`,
+/// `this->mtx.lock_shared()`, `mtx.try_lock()` sur un membre) : le genre du
+/// verrou selon la méthode et le type déclaré du champ, ou `None`. Il faut
+/// le type : `weak.lock()` sur un `weak_ptr` n'est pas un verrou, `read` et
+/// `write` n'en sont que sur un `RwLock` ou un `shared_mutex`.
+pub fn lock_by_call(methode: &str, type_du_champ: &str) -> Option<super::types::UsageKind> {
+    use super::types::UsageKind as U;
+    let t = type_du_champ.to_lowercase();
+    let mutex = t.contains("mutex");
+    let rwlock = t.contains("rwlock") || t.contains("shared_mutex");
+    match methode {
+        "lock" | "try_lock" if mutex || rwlock => Some(U::Lock),
+        "lock_shared" | "try_lock_shared" if mutex || rwlock => Some(U::SharedLock),
+        "read" | "try_read" if rwlock => Some(U::SharedLock),
+        "write" | "try_write" if rwlock => Some(U::Lock),
+        _ => None,
+    }
+}
+
 /// **Une lecture de champ Rust** (`r.indexed_hash`, sans appel) : en Rust, un
 /// `.x` non appelé est toujours un champ — jamais une fonction ni une
 /// méthode, qui ne se nomment pas sans `()`. Ce n'est pas une référence vers

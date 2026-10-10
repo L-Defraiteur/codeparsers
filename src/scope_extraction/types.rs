@@ -58,6 +58,14 @@ pub enum UsageKind {
     Import,
     Inheritance,
     Other,
+    /// Un verrou exclusif pris sur un champ mutex (`std::unique_lock`,
+    /// `lock_guard`, `scoped_lock`, `.lock()`, `RwLock::write`) : la référence
+    /// nomme le champ, son qualificatif le propriétaire (`this`, `self`, une
+    /// variable).
+    Lock,
+    /// Un verrou partagé (`std::shared_lock`, `.lock_shared()`,
+    /// `RwLock::read`).
+    SharedLock,
 }
 
 /// Un usage localisé : son genre et sa ligne (1 = première ligne du fichier).

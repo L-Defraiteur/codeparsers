@@ -663,7 +663,11 @@ impl RelationshipResolver {
         let mut vus: std::collections::HashSet<&str> = std::collections::HashSet::new();
         let mut out = Vec::new();
         for r in &scope.identifier_references {
-            if matches!(r.kind, Some(IdentifierReferenceKind::Builtin) | Some(IdentifierReferenceKind::LocalScope)) {
+            // Un verrou sur un champ est compris : la relation « prend le
+            // verrou Classe::champ » est l'affaire du consommateur.
+            if matches!(r.kind, Some(IdentifierReferenceKind::Builtin) | Some(IdentifierReferenceKind::LocalScope))
+                || matches!(r.usage, Some(UsageKind::Lock) | Some(UsageKind::SharedLock))
+            {
                 continue;
             }
             let nom = r.identifier.as_str();

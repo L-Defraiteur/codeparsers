@@ -50,3 +50,5 @@ scopes.Method = 43
 scopes.Module = 20
 scopes.Namespace = 4
 scopes.total = 136
+verrous.exclusifs = 0
+verrous.partages = 0

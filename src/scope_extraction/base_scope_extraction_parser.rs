@@ -2264,6 +2264,33 @@ impl BaseScopeExtractionParser {
             exclude.insert(typed_binding(nom));
         }
         self.extract_identifier_references_visit(node, content, &exclude, &mut references);
+        // C++ : les gardes de verrou RAII. Un mutex local (déclaré dans la
+        // fonction, donc lié et typé) n'est pas un champ.
+        if matches!(self.language, SupportedLanguage::Cpp) {
+            for (champ, proprietaire, partage, noeud) in crate::scope_extraction::usage::cpp_lock_guards(node, content) {
+                if proprietaire == "this" && types.contains_key(&champ) {
+                    continue;
+                }
+                let row = noeud.start_position().row;
+                let col = noeud.start_position().column;
+                // La lecture ordinaire du même nom au même endroit cède la
+                // place au verrou.
+                let prefixe = format!("{champ}:{row}:{col}:");
+                references.retain(|k, _| !k.starts_with(&prefixe));
+                references.insert(
+                    format!("{champ}:{row}:{col}:verrou"),
+                    IdentifierReference {
+                        identifier: champ,
+                        line: row + 1,
+                        column: Some(col),
+                        context: line_at_byte(content, noeud.start_byte()),
+                        qualifier: Some(proprietaire),
+                        usage: Some(if partage { crate::scope_extraction::types::UsageKind::SharedLock } else { crate::scope_extraction::types::UsageKind::Lock }),
+                        ..Default::default()
+                    },
+                );
+            }
+        }
         let debuts_de_ligne: Vec<usize> = std::iter::once(0).chain(content.match_indices('\n').map(|(i, _)| i + 1)).collect();
         for r in references.values_mut() {
             if let Some(t) = r.qualifier.as_deref().and_then(|q| types.get(q)) {
