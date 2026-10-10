@@ -64,6 +64,9 @@ public:
         std::mutex local;
         std::lock_guard l(local);
     }
+    void parentheses() {
+        std::lock_guard lck(autre);
+    }
     void essai() {
         if (mtx.try_lock()) {
         }
@@ -71,6 +74,7 @@ public:
     }
 private:
     std::shared_mutex mtx;
+    std::mutex autre;
     Other other;
     std::weak_ptr<Other> weak;
 };
@@ -87,6 +91,7 @@ fn cpp_les_gardes_et_les_appels_sur_un_mutex() {
         v("both", "m1", "o", false),
         v("both", "m2", "other", false),
         v("essai", "mtx", "this", false),
+        v("parentheses", "autre", "this", false),
     ]
     .into_iter()
     .collect();

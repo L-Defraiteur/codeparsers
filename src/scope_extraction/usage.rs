@@ -262,6 +262,22 @@ pub fn cpp_lock_guards<'a>(racine: Node<'a>, content: &str) -> Vec<(String, Stri
             if let Some(partage) = partage {
                 let mut c = n.walk();
                 for d in n.children_by_field_name("declarator", &mut c) {
+                    // `std::lock_guard g(mtx);` se lit comme la déclaration
+                    // d'une fonction `g` d'un paramètre de type `mtx` : le
+                    // type déclaré est une garde, l'intention est certaine,
+                    // ses « paramètres » sont les mutex passés.
+                    if d.kind() == "function_declarator" {
+                        let Some(params) = d.child_by_field_name("parameters") else { continue };
+                        let mut c2 = params.walk();
+                        for p in params.named_children(&mut c2) {
+                            if p.kind() == "parameter_declaration" && p.child_by_field_name("declarator").is_none() {
+                                if let Some(t) = p.child_by_field_name("type").filter(|t| t.kind() == "type_identifier") {
+                                    out.push((texte(t, content).to_string(), "this".to_string(), partage, t));
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     let Some(valeur) = d.child_by_field_name("value") else { continue };
                     let mut c2 = valeur.walk();
                     for arg in valeur.named_children(&mut c2) {
