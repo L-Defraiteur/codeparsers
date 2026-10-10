@@ -10,6 +10,7 @@ dépôts, et ce qu'il ne sait pas comprendre. Le témoin du chantier
 | `rag3db-test.txt` | `rag3db/test` (C++) |
 | `rag3weaver.txt` | `rag3db/extension/rag3weaver/src` et `tests` (Rust) |
 | `codeparsers.txt` | ce dépôt, `src` et `tests` (Rust) |
+| `ir.txt` | `rag3db/extension/rag3weaver/ir` (Rust, l'IR des requêtes) |
 
 ## Les mesures
 
@@ -35,5 +36,11 @@ cargo run --release --example banc_couverture -- rag3db-src ../rag3db/src --veri
 
 `--verifier` échoue si une mesure a reculé dans son mauvais sens ; elle
 imprime aussi les vingt fichiers aux plus nombreux appels non résolus.
+`--trous` ajoute le rapport des trous : chaque non-résolue rangée par forme
+(méthode sur un receveur, appel nu, appel par chemin, lecture de champ,
+macro, `std::`, import, type, nom seul), avec son coût pour les outils
+(un trou dans `storage/` ou `transaction/` pèse double) et le lot qui la
+fermerait.
+
 `--ecrire` réécrit la référence : à faire dans le commit qui fait monter
 une ligne, jamais pour en effacer une qui descend.

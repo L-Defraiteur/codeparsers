@@ -115,10 +115,89 @@ fn sens(cle: &str) -> i32 {
     }
 }
 
+/// La forme d'une référence non résolue, lue sur la référence elle-même.
+fn forme(nom: &str, usage: &str, qualif: Option<&str>) -> &'static str {
+    let majuscules = nom.len() > 1 && nom.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+    let racine = qualif.map(|q| q.split([':', '.', '-']).next().unwrap_or(""));
+    if racine == Some("std") {
+        return "std:: (externe)";
+    }
+    if majuscules {
+        return "macro ou constante (MAJUSCULES)";
+    }
+    match (usage, qualif) {
+        ("import", _) => "import",
+        ("type", _) => "type",
+        ("inheritance", _) => "héritage",
+        ("call", None) => "appel nu",
+        ("call", Some(q)) if q.contains("::") && !q.contains('.') && !q.contains("->") => "appel par chemin (Ns::f, T::f)",
+        ("call", Some(_)) => "méthode sur un receveur (x.f(), x->f())",
+        (_, Some(q)) if q.contains("::") && !q.contains('.') && !q.contains("->") => "membre par chemin (T::x)",
+        (_, Some(_)) => "lecture de champ (x.y, x->y)",
+        _ => "nom seul",
+    }
+}
+
+/// Ce qu'une forme coûte aux outils (usages, impact, voisinage), et le lot
+/// qui la fermerait.
+fn cout(forme: &str) -> (f64, &'static str) {
+    match forme {
+        "méthode sur un receveur (x.f(), x->f())" => (3.0, "B2 receveurs typés"),
+        "appel par chemin (Ns::f, T::f)" => (3.0, "B1 chemins / rendez-vous"),
+        "appel nu" => (3.0, "B1 rendez-vous (autre fichier) / locaux"),
+        "héritage" => (2.0, "B1"),
+        "type" => (1.5, "B1"),
+        "import" => (1.0, "#include → fichier"),
+        "membre par chemin (T::x)" => (1.0, "membres statiques, enums"),
+        "lecture de champ (x.y, x->y)" => (0.5, "champs : ne pas relier (comme Rust)"),
+        "macro ou constante (MAJUSCULES)" => (0.5, "macros #define"),
+        "nom seul" => (0.5, "paramètres et locaux"),
+        _ => (0.0, "externe : à dire compris"),
+    }
+}
+
+fn rapport_des_trous(
+    mode: &str,
+    non_resolues: &[codeparsers::relationship_resolution::types::UnresolvedReference],
+    refs: &HashMap<(String, String, String), String>,
+    qualifs: &HashMap<(String, String, String), Option<String>>,
+) {
+    // Un trou dans le stockage ou les transactions pèse double : c'est là
+    // qu'on cherche les verrous.
+    let critique = |f: &str| f.starts_with("storage/") || f.starts_with("transaction/") || f.contains("/storage/") || f.contains("/transaction/");
+    let mut lignes: BTreeMap<&'static str, (usize, usize, f64, Vec<String>)> = BTreeMap::new();
+    for u in non_resolues {
+        let cle = (u.from_file.trim_start_matches('/').to_string(), u.from_scope.clone(), u.identifier.clone());
+        let usage = refs.get(&cle).map_or(u.kind.as_str(), |x| x.as_str());
+        let q = qualifs.get(&cle).cloned().flatten();
+        let f = forme(&u.identifier, usage, q.as_deref());
+        let (poids, _) = cout(f);
+        let e = lignes.entry(f).or_default();
+        e.0 += 1;
+        let c = critique(&cle.0);
+        if c {
+            e.1 += 1;
+        }
+        e.2 += poids * if c { 2.0 } else { 1.0 };
+        if e.3.len() < 3 && u.reason.starts_with("aucun") || e.3.len() < 3 && c {
+            e.3.push(format!("`{}{}` ({})", q.map(|q| format!("{q}.")).unwrap_or_default(), u.identifier, cle.0.rsplit('/').next().unwrap_or("")));
+        }
+    }
+    let mut tri: Vec<_> = lignes.into_iter().collect();
+    tri.sort_by(|a, b| b.1 .2.partial_cmp(&a.1 .2).unwrap());
+    println!("\n## Les trous ({mode}), classés par coût pour les outils\n");
+    println!("| forme | non résolues | dont storage/transaction | coût | lot qui la ferme | exemples |\n|---|---|---|---|---|---|");
+    for (f, (n, c, poids, ex)) in &tri {
+        println!("| {f} | {n} | {c} | {poids:.0} | {} | {} |", cout(f).1, ex.join(", "));
+    }
+}
+
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let mut ecrire = None;
     let mut verifier = None;
+    let trous = args.iter().any(|a| a == "--trous");
+    args.retain(|a| a != "--trous");
     if let Some(i) = args.iter().position(|a| a == "--ecrire") {
         ecrire = args.get(i + 1).cloned();
         args.drain(i..(i + 2).min(args.len()));
@@ -186,6 +265,7 @@ fn main() {
         }
         // Les références relevées, une par (fichier, scope, nom), par genre d'usage.
         let mut refs: HashMap<(String, String, String), String> = HashMap::new();
+        let mut qualifs: HashMap<(String, String, String), Option<String>> = HashMap::new();
         for s in &scopes {
             for x in &s.identifier_references {
                 // Un builtin est compris sans relation ; un nom du fichier
@@ -195,6 +275,7 @@ fn main() {
                 }
                 let usage = x.usage.as_ref().map_or_else(|| "other".to_string(), |u| format!("{u:?}").to_lowercase());
                 let f = s.file_path.strip_prefix(&racine_commune).unwrap_or(&s.file_path).trim_start_matches('/').to_string();
+                qualifs.entry((f.clone(), s.name.clone(), x.identifier.clone())).or_insert_with(|| x.qualifier.clone());
                 refs.entry((f, s.name.clone(), x.identifier.clone())).or_insert(usage);
             }
         }
@@ -227,6 +308,9 @@ fn main() {
             }
         }
         m.insert(format!("{mode}.non_resolues"), rel.unresolved_references.len().to_string());
+        if trous {
+            rapport_des_trous(mode, &rel.unresolved_references, &refs, &qualifs);
+        }
         for (k, n) in &par_raison {
             m.insert(format!("{mode}.non_resolues.raison.{k}"), n.to_string());
         }
