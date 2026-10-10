@@ -105,3 +105,13 @@ fn les_champs_d_une_classe_disent_leur_type() {
     .collect();
     assert_eq!(champs, attendu);
 }
+
+#[test]
+fn une_chaine_de_champs_se_suit_pas_a_pas() {
+    // set_executor.cpp : `tableInfo.table->update()`, `tableInfo` membre
+    // implicite, `table` champ de ce membre.
+    let src = "class NodeTable {\npublic:\n    void update(int v);\n};\n\nstruct Info {\n    NodeTable* table;\n};\n\nclass Exec {\npublic:\n    void set();\nprivate:\n    Info tableInfo;\n};\n\nvoid Exec::set() {\n    tableInfo.table->update(1);\n    this->tableInfo.table->update(2);\n}\n";
+    let r = refs(src);
+    let types: Vec<Option<String>> = r.iter().filter(|(s, x)| s == "set" && x.identifier == "update").map(|(_, x)| x.qualifier_type.clone()).collect();
+    assert_eq!(types, vec![Some("NodeTable".to_string()), Some("NodeTable".to_string())], "{r:#?}");
+}

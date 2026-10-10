@@ -315,11 +315,12 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
             if r.qualifier_type.is_some() {
                 continue;
             }
+            let champ = |classe: &str, f: &str| champs.get(&(classe.to_string(), f.to_string())).cloned().flatten();
             let nom_du_type = |ecrit: &str, peel: &[String]| -> Option<String> {
                 if peel.is_empty() {
                     base_type_name(ecrit)
                 } else {
-                    crate::scope_extraction::receveur::peel(ecrit, peel).and_then(|t| crate::scope_extraction::receveur::type_name(&t))
+                    crate::scope_extraction::receveur::peel_avec(ecrit, peel, &champ).and_then(|t| crate::scope_extraction::receveur::type_name(&t))
                 }
             };
             let lu = match r.qualifier_deferred.as_ref() {

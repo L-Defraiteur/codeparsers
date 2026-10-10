@@ -310,9 +310,19 @@ fn fin_des_parentheses(s: &str) -> Option<usize> {
 /// [`lock`, `unwrap`] donne `MutexGuard<Catalog>`. `None` dès qu'un maillon
 /// n'est pas dans la table.
 pub fn peel(t: &str, chaine: &[String]) -> Option<String> {
+    peel_avec(t, chaine, &|_, _| None)
+}
+
+/// [`peel`], avec les pas de champ (`.b`) : le type du champ `b` du type
+/// courant, rendu par `champ(type, nom)` — la table des champs du lecteur.
+/// `None` dès qu'un pas ne se lit pas.
+pub fn peel_avec(t: &str, chaine: &[String], champ: &dyn Fn(&str, &str) -> Option<String>) -> Option<String> {
     let mut t = t.to_string();
     for m in chaine {
-        t = methode(&t, m)?;
+        t = match m.strip_prefix('.') {
+            Some(f) => champ(&type_name(&t)?, f)?,
+            None => methode(&t, m)?,
+        };
     }
     Some(t)
 }

@@ -708,14 +708,30 @@ fn racine_differee(
     use super::types::DeferredType;
     let ident = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_');
     let q = q.trim();
-    for sep in [".", "->"] {
-        if let Some((racine, champ)) = q.split_once(sep) {
-            if !ident(champ) || !ident(racine) {
-                continue;
-            }
-            let proprietaire = if matches!(racine, "self" | "this") { englobant.map(str::to_string) } else { types.get(racine).cloned() };
-            return proprietaire.map(|owner| DeferredType::FieldOf { owner, field: champ.to_string(), peel: Vec::new() });
+    // **Une chaîne de champs** (`a.b`, `this->a.b`, `self.a.b`, un membre
+    // implicite C++ `a.b`) : le premier champ dit le propriétaire, les
+    // suivants deviennent des pas de champ (`.b`) que le lecteur suivra dans
+    // la table des champs.
+    let segments: Vec<&str> = q.split("->").flat_map(|s| s.split('.')).map(str::trim).collect();
+    if segments.len() >= 2 && segments.iter().all(|s| ident(s)) {
+        let pas = |r: &[&str]| r.iter().map(|f| format!(".{f}")).collect::<Vec<_>>();
+        let (s0, reste) = (segments[0], &segments[1..]);
+        if matches!(s0, "self" | "this") {
+            return englobant.map(|owner| DeferredType::FieldOf { owner: owner.to_string(), field: reste[0].to_string(), peel: pas(&reste[1..]) });
         }
+        if let Some(t) = types.get(s0) {
+            return Some(DeferredType::FieldOf { owner: t.clone(), field: reste[0].to_string(), peel: pas(&reste[1..]) });
+        }
+        if let Some(d) = liees.get(s0) {
+            return Some(d.clone().with_peel(pas(reste)));
+        }
+        if let Some((f, deballe)) = retours.get(s0) {
+            return Some(DeferredType::ReturnOf { function: f.clone(), unwrap: *deballe, peel: pas(reste) });
+        }
+        if champ_implicite {
+            return englobant.map(|owner| DeferredType::FieldOf { owner: owner.to_string(), field: s0.to_string(), peel: pas(reste) });
+        }
+        return None;
     }
     if matches!(q, "self" | "this" | "Self" | "super" | "cls") {
         return None;
