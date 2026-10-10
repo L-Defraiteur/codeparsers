@@ -12,3 +12,9 @@ forme de tree-sitter-css 0.23.2. Rien n'est proposé à l'amont.
 Le reste (grammaire, `src/parser.c`, `src/scanner.c`, requêtes) est tel que
 publié. Pour reprendre une version amont : recopier la crate du registre,
 puis réappliquer ce changement.
+
+Pas de `[patch.crates-io]` à poser chez un consommateur : la dépendance par
+chemin se résout depuis le Cargo.toml de codeparsers, même quand codeparsers
+est un sous-module pris par chemin (vérifié depuis rag3weaver : cargo ajoute
+`tree-sitter-scss v1.0.0 (…/codeparsers/vendor/tree-sitter-scss)`). Le
+Cargo.lock du consommateur perd seulement la source et la somme du registre.
