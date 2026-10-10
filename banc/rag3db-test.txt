@@ -1,17 +1,17 @@
 # banc de couverture — rag3db-test
 analyse.cpp.erreur_pct = 0.0
 analyse.python.erreur_pct = 0.0
-entre_fichiers.non_resolues = 18478
-entre_fichiers.non_resolues.genre.class = 2073
+entre_fichiers.non_resolues = 18476
+entre_fichiers.non_resolues.genre.class = 2072
 entre_fichiers.non_resolues.genre.function = 11961
 entre_fichiers.non_resolues.genre.lambda = 1668
-entre_fichiers.non_resolues.genre.method = 2557
+entre_fichiers.non_resolues.genre.method = 2556
 entre_fichiers.non_resolues.genre.module = 149
 entre_fichiers.non_resolues.genre.namespace = 66
 entre_fichiers.non_resolues.genre.variable = 4
 entre_fichiers.non_resolues.raison.aucun_scope_de_ce_nom_dans_le_projet = 17730
 entre_fichiers.non_resolues.raison.plusieurs_candidats = 147
-entre_fichiers.non_resolues.raison.un_candidat,_écarté = 601
+entre_fichiers.non_resolues.raison.un_candidat,_écarté = 599
 entre_fichiers.refs.call = 6462
 entre_fichiers.refs.call.relies_pct = 23.4
 entre_fichiers.refs.import = 251

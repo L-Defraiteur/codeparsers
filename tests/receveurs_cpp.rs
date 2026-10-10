@@ -75,3 +75,33 @@ fn chaque_forme_de_receveur_se_type() {
     let non_types: Vec<&(usize, Option<String>, Option<String>)> = appels.iter().filter(|(_, _, t)| t.as_deref() != Some("NodeTable")).collect();
     assert!(non_types.is_empty(), "receveurs non typés NodeTable : {non_types:#?}");
 }
+
+#[test]
+fn les_champs_d_une_classe_disent_leur_type() {
+    use codeparsers::scope_extraction::types::ClassMemberInfoMemberType as M;
+    let src = "#include <memory>\n\nclass Holder {\npublic:\n    void go();\nprivate:\n    LocalTable* localTable;\n    NodeTable& ref;\n    std::unique_ptr<RelTable> owned;\n    int a, b;\n    char nom[16];\n    Index idx = Index();\n};\n";
+    let chemin = "/virtual/holder.h".to_string();
+    let a = ProjectParser::new(ProjectParserOptions { verbose: false }).parse_project(ParseProjectOptions {
+        root: "/virtual".to_string(),
+        files: vec![chemin.clone()],
+        content_map: Some(HashMap::from([(chemin, src.to_string())])),
+        resolve_relationships: Some(false),
+        resolver_options: None,
+    });
+    let classe = a.files.values().flat_map(|fa| fa.scopes.iter()).find(|s| s.name == "Holder").expect("Holder");
+    let champs: Vec<(String, Option<String>)> =
+        classe.members.iter().flatten().filter(|m| m.member_type == M::Property).map(|m| (m.name.clone(), m.r#type.clone())).collect();
+    let attendu: Vec<(String, Option<String>)> = [
+        ("localTable", "LocalTable"),
+        ("ref", "NodeTable"),
+        ("owned", "std::unique_ptr<RelTable>"),
+        ("a", "int"),
+        ("b", "int"),
+        ("nom", "char"),
+        ("idx", "Index"),
+    ]
+    .iter()
+    .map(|(n, t)| (n.to_string(), Some(t.to_string())))
+    .collect();
+    assert_eq!(champs, attendu);
+}

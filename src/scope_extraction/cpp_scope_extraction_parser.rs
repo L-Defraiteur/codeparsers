@@ -866,21 +866,32 @@ impl CppScopeExtractionParser {
                     continue;
                 }
 
-                // Field declarations
+                // Field declarations. Le type se lit par le champ `type` (un
+                // gabarit `std::unique_ptr<T>` compris) ; chaque déclarateur se
+                // déballe jusqu'à son nom — `NodeTable* table`, `T& r`,
+                // `int a[4]`, `int a = 0`, et `int a, b` en donne deux. Un
+                // pointeur ou une référence ne se notent pas : on appelle à
+                // travers eux les méthodes du type.
                 if child.kind() == "field_declaration" {
-                    let mut inner_cursor = child.walk();
-                    let type_node = child.children(&mut inner_cursor)
-                        .find(|c| {
-                            c.kind() == "primitive_type"
-                                || c.kind() == "type_identifier"
-                                || c.kind() == "qualified_identifier"
-                        });
+                    let type_node = child.child_by_field_name("type");
+                    let mut decl_cursor = child.walk();
+                    let noms: Vec<SyntaxNode> = child
+                        .children_by_field_name("declarator", &mut decl_cursor)
+                        .filter_map(|d| {
+                            let mut n = d;
+                            loop {
+                                match n.kind() {
+                                    "field_identifier" | "identifier" => return Some(n),
+                                    "pointer_declarator" | "reference_declarator" | "array_declarator" | "init_declarator" | "parenthesized_declarator" => {
+                                        n = n.child_by_field_name("declarator").or_else(|| n.named_child(n.named_child_count().saturating_sub(1)))?;
+                                    }
+                                    _ => return None,
+                                }
+                            }
+                        })
+                        .collect();
 
-                    let mut inner_cursor = child.walk();
-                    let declarator = child.children(&mut inner_cursor)
-                        .find(|c| c.kind() == "field_identifier" || c.kind() == "identifier");
-
-                    if let Some(declarator) = declarator {
+                    for declarator in noms {
                         let accessibility = match current_access {
                             "public" => Some(ClassMemberInfoAccessibility::Public),
                             "private" => Some(ClassMemberInfoAccessibility::Private),
