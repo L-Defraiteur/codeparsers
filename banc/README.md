@@ -58,5 +58,9 @@ macro, `std::`, import, type, nom seul), avec son coût pour les outils
 (un trou dans `storage/` ou `transaction/` pèse double) et le lot qui la
 fermerait.
 
+`--appelants Classe::methode` compte les CONSUMES vers cette méthode, dans
+les deux modes, et liste leurs sources (la mesure de suivi du chantier :
+`NodeTable::update`).
+
 `--ecrire` réécrit la référence : à faire dans le commit qui fait monter
 une ligne, jamais pour en effacer une qui descend.

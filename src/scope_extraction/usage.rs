@@ -344,6 +344,9 @@ pub(crate) fn simple_name(n: Node, content: &str) -> Option<String> {
 
 /// Le type que construit un initialiseur, quand il se lit sur lui.
 pub(crate) fn initializer_type(v: Node, content: &str) -> Option<String> {
+    if let Some(t) = gabarit_qui_dit_son_type(v, content) {
+        return Some(t);
+    }
     match v.kind() {
         "struct_expression" => v.child_by_field_name("name").and_then(|t| base_type_name(texte(t, content))),
         "new_expression" => v
@@ -369,6 +372,40 @@ pub(crate) fn initializer_type(v: Node, content: &str) -> Option<String> {
     }
 }
 
+/// **Un gabarit C++ qui dit son type** : une fabrique (`std::make_unique<T>()`,
+/// `std::make_shared<T>()`) ou une conversion (`static_cast<T*>(e)`,
+/// `std::dynamic_pointer_cast<T>(p)`, `x->cast<T>()`, `ptrCast<T>()`) rend un
+/// `T` — l'argument de type explicite, quelle que soit la racine de la
+/// chaîne. Une conversion se reconnaît à son nom : `cast`, `…_cast`,
+/// `…Cast` (pas `broadcast`).
+fn gabarit_qui_dit_son_type(v: Node, content: &str) -> Option<String> {
+    if v.kind() != "call_expression" {
+        return None;
+    }
+    let mut f = v.child_by_field_name("function")?;
+    // `std::make_unique<T>` (qualifié), `x->cast<T>` (champ appelé).
+    loop {
+        match f.kind() {
+            "qualified_identifier" => f = f.child_by_field_name("name")?,
+            "field_expression" => f = f.child_by_field_name("field")?,
+            _ => break,
+        }
+    }
+    if !matches!(f.kind(), "template_function" | "template_method") {
+        return None;
+    }
+    let nom = texte(f.child_by_field_name("name")?, content);
+    let fabrique = matches!(nom, "make_unique" | "make_shared");
+    let conversion = nom == "cast" || nom.ends_with("_cast") || nom.ends_with("Cast");
+    if !fabrique && !conversion {
+        return None;
+    }
+    let args = f.child_by_field_name("arguments")?;
+    let mut c = args.walk();
+    let premier = args.named_children(&mut c).next()?;
+    base_type_name(texte(premier, content))
+}
+
 /// Le nom du type que désigne un texte de type : `&mut Node` → `Node`,
 /// `crate::a::Node<T>` → `Node`, `: Node | null` → `Node`. `Box`, `Arc` et
 /// `Rc` se déballent d'un niveau (on appelle à travers eux les méthodes du
@@ -387,7 +424,8 @@ pub fn base_type_name(texte: &str) -> Option<String> {
     }
     let chemin: String = t.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':' || *c == '.').collect();
     let nom = chemin.rsplit(|c| c == ':' || c == '.').find(|s| !s.is_empty())?.to_string();
-    if matches!(nom.as_str(), "Box" | "Arc" | "Rc") {
+    // C++ : `unique_ptr`, `shared_ptr` se traversent comme `Box`, `Arc`, `Rc`.
+    if matches!(nom.as_str(), "Box" | "Arc" | "Rc" | "unique_ptr" | "shared_ptr") {
         let reste = &t[chemin.len()..];
         if let Some(interieur) = reste.strip_prefix('<').and_then(|r| r.strip_suffix('>')) {
             return base_type_name(interieur);

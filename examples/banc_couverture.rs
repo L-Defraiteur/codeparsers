@@ -106,7 +106,7 @@ fn pct(a: usize, b: usize) -> String {
 
 /// Le bon sens d'une mesure : +1 elle doit monter, -1 descendre, 0 neutre.
 fn sens(cle: &str) -> i32 {
-    if cle.ends_with(".relies_pct") {
+    if cle.ends_with(".relies_pct") || cle.contains(".appelants.") {
         1
     } else if cle.ends_with(".erreur_pct") || cle.contains(".non_resolues") {
         -1
@@ -198,6 +198,11 @@ fn main() {
     let mut verifier = None;
     let trous = args.iter().any(|a| a == "--trous");
     args.retain(|a| a != "--trous");
+    let mut appelants_de = None;
+    if let Some(i) = args.iter().position(|a| a == "--appelants") {
+        appelants_de = args.get(i + 1).cloned();
+        args.drain(i..(i + 2).min(args.len()));
+    }
     if let Some(i) = args.iter().position(|a| a == "--ecrire") {
         ecrire = args.get(i + 1).cloned();
         args.drain(i..(i + 2).min(args.len()));
@@ -310,6 +315,25 @@ fn main() {
         m.insert(format!("{mode}.non_resolues"), rel.unresolved_references.len().to_string());
         if trous {
             rapport_des_trous(mode, &rel.unresolved_references, &refs, &qualifs);
+        }
+        // Les appelants d'une méthode (`Classe::methode`) : les CONSUMES vers
+        // un scope de ce nom dont le parent est cette classe.
+        if let Some(cible) = &appelants_de {
+            let (classe, methode) = cible.rsplit_once("::").unwrap_or(("", cible.as_str()));
+            let cibles: HashSet<&str> = scopes
+                .iter()
+                .filter(|s| s.name == methode && (classe.is_empty() || s.parent.as_deref().is_some_and(|p| p.rsplit("::").next() == Some(classe))))
+                .map(|s| s.file_path.as_str())
+                .collect();
+            let appelants: Vec<String> = rel
+                .relationships
+                .iter()
+                .filter(|x| x.r#type == codeparsers::relationship_resolution::types::RelationshipType::CONSUMES && x.to_name == methode)
+                .filter(|x| cibles.iter().any(|f| f.ends_with(x.to_file.trim_start_matches('/'))))
+                .map(|x| format!("{}:{}", x.from_file.rsplit('/').next().unwrap_or(""), x.from_name))
+                .collect();
+            m.insert(format!("{mode}.appelants.{}", cible.replace("::", "__")), appelants.len().to_string());
+            println!("# appelants de {cible} ({mode}) : {} {:?}", appelants.len(), appelants);
         }
         for (k, n) in &par_raison {
             m.insert(format!("{mode}.non_resolues.raison.{k}"), n.to_string());
