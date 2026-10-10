@@ -231,6 +231,8 @@ impl RelationshipResolver {
 
         for (file_path, analysis) in parsed_files {
             for scope in &analysis.scopes {
+                let debut = relationships.len();
+                let debut_non_resolues = unresolved_references.len();
                 // 1. Resolve local scope references (same file)
                 let local_refs = self.resolve_local_scope_references(scope, file_path);
                 relationships.extend(merge_by_target(local_refs));
@@ -262,6 +264,12 @@ impl RelationshipResolver {
                 // 3b. Resolve heritage clauses (extends/implements) directly
                 let heritage_refs = self.resolve_heritage_relations(scope, file_path);
                 relationships.extend(heritage_refs);
+
+                // 3c. Ce qui n'est devenu aucune relation est dit, pas jeté.
+                let deja: std::collections::HashSet<String> =
+                    unresolved_references[debut_non_resolues..].iter().map(|u| u.identifier.clone()).collect();
+                let releve = self.releve_non_resolues(scope, file_path, &relationships[debut..], &deja);
+                unresolved_references.extend(releve);
 
                 // 4. Resolve DECORATES relationships
                 if self.options.include_decorators.unwrap_or(true) {
@@ -637,6 +645,53 @@ impl RelationshipResolver {
         }
 
         relationships
+    }
+
+    /// **Les références d'un scope qui ne sont devenues aucune relation**, une
+    /// par nom, avec leur raison. Les noms locaux et les builtins n'en sont
+    /// pas : ils sont compris, simplement pas reliés à un scope du projet.
+    fn releve_non_resolues(
+        &self,
+        scope: &ScopeInfo,
+        file_path: &str,
+        produites: &[ResolvedRelationship],
+        deja: &std::collections::HashSet<String>,
+    ) -> Vec<UnresolvedReference> {
+        let relies: std::collections::HashSet<&str> =
+            produites.iter().filter(|r| r.from_name == scope.name).map(|r| r.to_name.as_str()).collect();
+        let relative_path = self.get_relative_path(file_path);
+        let mut vus: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for r in &scope.identifier_references {
+            if matches!(r.kind, Some(IdentifierReferenceKind::Builtin) | Some(IdentifierReferenceKind::LocalScope)) {
+                continue;
+            }
+            let nom = r.identifier.as_str();
+            if nom.is_empty() || nom == scope.name || relies.contains(nom) || deja.contains(nom) || !vus.insert(nom) {
+                continue;
+            }
+            let candidats = self.scope_mapping.get(nom).cloned().unwrap_or_default();
+            let dans_le_fichier = candidats.iter().filter(|c| c.file == relative_path).count();
+            let raison = if candidats.is_empty() {
+                "aucun scope de ce nom dans le projet".to_string()
+            } else if dans_le_fichier == 0 && !self.cross_file() {
+                "défini dans un autre fichier (fichier seul : au consommateur)".to_string()
+            } else if candidats.len() > 1 {
+                format!("plusieurs candidats ({}), aucun retenu", candidats.len())
+            } else {
+                "un candidat, écarté (genre ou type lu)".to_string()
+            };
+            out.push(UnresolvedReference {
+                from_scope: scope.name.clone(),
+                from_type: scope_type_str(&scope.r#type).to_string(),
+                from_file: relative_path.clone(),
+                identifier: nom.to_string(),
+                kind: r.usage.as_ref().map_or_else(|| "other".to_string(), |u| format!("{u:?}").to_lowercase()),
+                reason: raison,
+                candidates: None,
+            });
+        }
+        out
     }
 
     /// Resolve import references (cross-file).
