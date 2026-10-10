@@ -482,6 +482,29 @@ fn nom_de_type_nu(e: &str) -> bool {
         && !matches!(e, "Some" | "None" | "Ok" | "Err" | "Self")
 }
 
+/// **Le type qu'un chemin d'appel nomme** : `Catalog` dans `Catalog::Get(…)`,
+/// `Outil` dans `crate::outils::Outil::fabrique()`, `IntegerBitpacking` dans
+/// `IntegerBitpacking<T>::f()` — le dernier segment, arguments de gabarit
+/// retirés, s'il est un nom de type. Un module (`crate::outils`), une
+/// constante, une expression (`a.b`, `f()`) : `None`.
+pub fn type_of_path(q: &str) -> Option<String> {
+    let mut sans_gabarit = String::new();
+    let mut prof = 0usize;
+    for c in q.trim().chars() {
+        match c {
+            '<' => prof += 1,
+            '>' if prof > 0 => prof -= 1,
+            _ if prof == 0 => sans_gabarit.push(c),
+            _ => {}
+        }
+    }
+    if sans_gabarit.is_empty() || sans_gabarit.chars().any(|c| !(c.is_alphanumeric() || c == '_' || c == ':')) {
+        return None;
+    }
+    let dernier = sans_gabarit.rsplit("::").next()?;
+    nom_de_type_nu(dernier).then(|| dernier.to_string())
+}
+
 /// **Le type qu'un littéral écrit nomme** : une struct unité (`Marteau`), un
 /// `vec![Marteau, …]` ou `vec![Foo::new(); n]` (`Vec<…>` de son premier
 /// élément, struct unité ou constructeur).

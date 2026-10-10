@@ -2302,6 +2302,15 @@ impl BaseScopeExtractionParser {
                 crate::scope_extraction::receveur::receiver_type(q, &pleins.at(debut_de_ligne + r.column.unwrap_or(0)))
             }) {
                 r.qualifier_type = Some(t);
+            } else if let Some(t) = r
+                .qualifier
+                .as_deref()
+                .filter(|_| r.usage == Some(crate::scope_extraction::types::UsageKind::Call))
+                .and_then(crate::scope_extraction::receveur::type_of_path)
+            {
+                // Un appel par chemin sur un type (`Catalog::Get(…)`) : le
+                // type est le receveur.
+                r.qualifier_type = Some(t);
             } else if let Some(q) = r.qualifier.as_deref() {
                 r.qualifier_deferred =
                     crate::scope_extraction::usage::deferred_with_bindings(q, &types, &retours, &liees, englobant.as_deref(), champ_implicite);
