@@ -435,6 +435,84 @@ fn motif_deballant<'a>(motif: Node<'a>, content: &str) -> Option<(String, &'stat
     simple_name(*seul, content).map(|n| (n, ctor))
 }
 
+/// Les collections dont une boucle `for` rend l'élément (leur premier
+/// argument). Un dictionnaire rend une paire : pas d'élément simple.
+const A_ELEMENTS: &[&str] = &["Vec", "VecDeque", "HashSet", "BTreeSet", "LinkedList", "BinaryHeap", "Option"];
+
+/// **Le type de l'élément d'une collection écrite** : `&Vec<T>`, `[T]`,
+/// `&mut [T; 3]`, `HashSet<T>` → `T`. `None` pour ce qui n'est pas une
+/// collection à éléments simples.
+fn element_de(t: &str) -> Option<String> {
+    let t = sans_enveloppe(t);
+    let mut s = t.trim();
+    loop {
+        let avant = s;
+        s = s.trim_start_matches('&').trim_start().trim_start_matches("mut ").trim_start();
+        if s.starts_with('\'') {
+            s = s.split_once(' ').map_or("", |(_, r)| r).trim_start();
+        }
+        if s == avant {
+            break;
+        }
+    }
+    if let Some(dedans) = s.strip_prefix('[') {
+        let mut prof = 0usize;
+        for (i, c) in dedans.char_indices() {
+            match c {
+                '<' | '(' | '[' => prof += 1,
+                '>' | ')' if prof > 0 => prof -= 1,
+                ']' if prof > 0 => prof -= 1,
+                ';' | ']' if prof == 0 => return Some(dedans[..i].trim().to_string()).filter(|e| !e.is_empty()),
+                _ => {}
+            }
+        }
+        return None;
+    }
+    let (nom, args) = decouper(s)?;
+    A_ELEMENTS.contains(&nom.as_str()).then(|| args.first().cloned()).flatten().filter(|e| !e.is_empty() && e != "_")
+}
+
+/// Un nom de type nu (`Marteau`) : en CamelCase, ni constante en
+/// majuscules, ni constructeur d'`Option` / `Result`.
+fn nom_de_type_nu(e: &str) -> bool {
+    let e = e.trim();
+    e.starts_with(char::is_uppercase)
+        && e.chars().any(char::is_lowercase)
+        && e.chars().all(|c| c.is_alphanumeric() || c == '_')
+        && !matches!(e, "Some" | "None" | "Ok" | "Err" | "Self")
+}
+
+/// **Le type qu'un littéral écrit nomme** : une struct unité (`Marteau`), un
+/// `vec![Marteau, …]` ou `vec![Foo::new(); n]` (`Vec<…>` de son premier
+/// élément, struct unité ou constructeur).
+fn type_d_un_litteral(v: Node, content: &str) -> Option<String> {
+    let e = texte(v, content).trim();
+    match v.kind() {
+        "identifier" if nom_de_type_nu(e) => Some(e.to_string()),
+        "macro_invocation" => {
+            let dedans = e.strip_prefix("vec!")?.trim_start();
+            let dedans = dedans.strip_prefix('[').or_else(|| dedans.strip_prefix('('))?;
+            let mut prof = 0usize;
+            let mut fin = dedans.len();
+            for (i, c) in dedans.char_indices() {
+                match c {
+                    '<' | '(' | '[' | '{' => prof += 1,
+                    '>' | ')' | ']' | '}' if prof > 0 => prof -= 1,
+                    ',' | ';' | ']' | ')' if prof == 0 => {
+                        fin = i;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            let premier = dedans[..fin].trim();
+            let t = if nom_de_type_nu(premier) { Some(premier.to_string()) } else { type_construit(premier) }?;
+            Some(format!("Vec<{t}>"))
+        }
+        _ => None,
+    }
+}
+
 /// Le type de l'élément que `Some` / `Ok` déballe d'un `t`.
 fn element(t: &str, ctor: &str) -> Option<String> {
     let (nom, args) = decouper(t)?;
@@ -454,7 +532,8 @@ fn collecter(n: Node, content: &str, b: &mut Bindings) {
                     .child_by_field_name("type")
                     .map(|t| texte(t, content).to_string())
                     .or_else(|| valeur.and_then(|v| type_of_chain(texte(v, content), &connus)))
-                    .or_else(|| valeur.and_then(|v| initializer_type(v, content)).filter(|t| !is_wrapper(t)));
+                    .or_else(|| valeur.and_then(|v| initializer_type(v, content)).filter(|t| !is_wrapper(t)))
+                    .or_else(|| valeur.and_then(|v| type_d_un_litteral(v, content)));
                 if let Some(t) = type_ {
                     b.lier(nom, n.end_byte(), fin_du_bloc(n), t);
                 }
@@ -464,6 +543,26 @@ fn collecter(n: Node, content: &str, b: &mut Bindings) {
             if let (Some(nom), Some(t)) = (n.child_by_field_name("pattern").and_then(|m| simple_name(m, content)), n.child_by_field_name("type")) {
                 let (debut, fin) = fonction_englobante(n);
                 b.lier(nom, debut, fin, texte(t, content).to_string());
+            }
+        }
+        // `for x in e` : `x` a le type de l'élément de `e` (`&v`, `v.iter()`,
+        // `v.iter_mut()`, `v.into_iter()`), sur le corps de la boucle.
+        "for_expression" => {
+            let nom = n.child_by_field_name("pattern").and_then(|m| simple_name(m, content));
+            if let (Some(nom), Some(valeur), Some(corps)) = (nom, n.child_by_field_name("value"), n.child_by_field_name("body")) {
+                let mut e = texte(valeur, content).trim();
+                e = e.trim_start_matches('&').trim_start().trim_start_matches("mut ").trim_start();
+                for suffixe in [".iter()", ".iter_mut()", ".into_iter()"] {
+                    if let Some(r) = e.strip_suffix(suffixe) {
+                        e = r.trim_end();
+                        break;
+                    }
+                }
+                let connus = b.at(valeur.start_byte());
+                let t = connus.get(e).cloned().or_else(|| type_of_chain(e, &connus));
+                if let Some(el) = t.and_then(|t| element_de(&t)) {
+                    b.lier(nom, corps.start_byte(), corps.end_byte(), el);
+                }
             }
         }
         "match_expression" => {
@@ -507,6 +606,17 @@ mod tests {
 
     fn liees(paires: &[(&str, &str)]) -> HashMap<String, String> {
         paires.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect()
+    }
+
+    #[test]
+    fn une_collection_rend_son_element() {
+        assert_eq!(element_de("&Vec<Marteau>").as_deref(), Some("Marteau"));
+        assert_eq!(element_de("&mut [Marteau; 3]").as_deref(), Some("Marteau"));
+        assert_eq!(element_de("&'a [Vec<u8>]").as_deref(), Some("Vec<u8>"));
+        assert_eq!(element_de("std::collections::HashSet<Marteau>").as_deref(), Some("Marteau"));
+        assert_eq!(element_de("Arc<Vec<Noeud>>").as_deref(), Some("Noeud"));
+        assert_eq!(element_de("HashMap<String, Marteau>"), None, "une paire, pas un élément");
+        assert_eq!(element_de("Marteau"), None);
     }
 
     #[test]
