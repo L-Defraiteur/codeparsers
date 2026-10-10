@@ -43,7 +43,9 @@ tree-sitter-c-sharp = "=0.23.1"
 tree-sitter-bash = "0.23"
 tree-sitter-css = "0.23"
 tree-sitter-html = "0.23"
-tree-sitter-scss = "1"
+# Copie locale : le build.rs publié force un drapeau GCC que MSVC refuse
+# (vendor/tree-sitter-scss/VENDOR.md).
+tree-sitter-scss = { path = "vendor/tree-sitter-scss" }
 indexmap = "2"
 blake3 = "1"
 rayon = "1"
