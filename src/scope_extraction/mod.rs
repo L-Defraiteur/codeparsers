@@ -5,6 +5,7 @@ pub mod cpp_scope_extraction_parser;
 pub mod go_scope_extraction_parser;
 pub mod python_scope_extraction_parser;
 pub mod rust_scope_extraction_parser;
+pub mod standard;
 
 pub mod types;
 pub mod test_marks;
