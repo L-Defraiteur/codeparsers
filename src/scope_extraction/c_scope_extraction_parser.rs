@@ -128,7 +128,7 @@ impl CScopeExtractionParser {
         let structured_imports = self.base.extract_structured_imports(content, None);
         let mut scopes = Vec::new();
         self.extract_scopes(root_node, &mut scopes, content, 0, None, &structured_imports, file_path);
-        let file_scopes = self.base.extract_file_scopes(content, &scopes, file_path, &structured_imports);
+        let file_scopes = self.base.extract_file_scopes(root_node, content, &scopes, file_path, &structured_imports);
         scopes.extend(file_scopes);
         self.base.attach_file_level_prototypes(root_node, content, &mut scopes);
         scopes.sort_by_key(|s| s.scope_start_line);

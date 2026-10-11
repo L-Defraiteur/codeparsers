@@ -288,7 +288,7 @@ impl BaseScopeExtractionParser {
         self.extract_scopes(root_node, &mut scopes, content, 0, None, &structured_imports, file_path);
 
         // Extract file-level scopes (code outside of defined scopes)
-        let file_scopes = self.extract_file_scopes(content, &scopes, file_path, &structured_imports);
+        let file_scopes = self.extract_file_scopes(root_node, content, &scopes, file_path, &structured_imports);
         scopes.extend(file_scopes);
 
         // Sort scopes by start line to maintain order
@@ -398,7 +398,7 @@ impl BaseScopeExtractionParser {
                 .cloned()
                 .collect();
             let container_scopes = self.extract_container_scopes(
-                content, &child_scopes, &scope_name, scope_start as f64, scope_end as f64, file_path, depth + 1, file_imports,
+                node, content, &child_scopes, &scope_name, scope_start as f64, scope_end as f64, file_path, depth + 1, file_imports,
             );
             scopes.extend(container_scopes);
 
@@ -459,7 +459,7 @@ impl BaseScopeExtractionParser {
                 .cloned()
                 .collect();
             let container_scopes = self.extract_container_scopes(
-                content, &child_scopes, &scope_name, scope_start as f64, scope_end as f64, file_path, depth + 1, file_imports,
+                node, content, &child_scopes, &scope_name, scope_start as f64, scope_end as f64, file_path, depth + 1, file_imports,
             );
             scopes.extend(container_scopes);
 
@@ -3473,8 +3473,12 @@ impl BaseScopeExtractionParser {
         }
     }
 
-    pub fn extract_file_scopes(&self, content: &str, existing_scopes: &[ScopeInfo], file_path: &str, file_imports: &[ImportReference]) -> Vec<ScopeInfo> {
+    /// `racine` : la racine de l'arbre du fichier, dont les chaînes et les
+    /// commentaires sont effacés avant la lecture des références
+    /// ([`mask_strings_and_comments`]).
+    pub fn extract_file_scopes(&self, racine: SyntaxNode, content: &str, existing_scopes: &[ScopeInfo], file_path: &str, file_imports: &[ImportReference]) -> Vec<ScopeInfo> {
         let mut file_scopes: Vec<ScopeInfo> = Vec::new();
+        let masque = mask_strings_and_comments(racine, content);
         let lines: Vec<&str> = content.split('\n').collect();
         let total_lines = lines.len();
 
@@ -3492,11 +3496,11 @@ impl BaseScopeExtractionParser {
                 let gap_end = scope.scope_start_line - 1;
 
                 let gap_content = lines[gap_start - 1..gap_end].join("\n");
-                let first_line = gap_start + leading_blank_lines(&gap_content);
                 let gap_content = gap_content.trim();
 
                 if self.has_meaningful_content(gap_content) {
-                    let file_scope = self.create_file_scope_at(gap_content, gap_start, gap_end, first_line, file_path, file_scope_index, file_imports);
+                    let references = lignes_de(&masque, gap_start, gap_end);
+                    let file_scope = self.create_file_scope_at(gap_content, gap_start, gap_end, (&references, gap_start), file_path, file_scope_index, file_imports);
                     file_scope_index += 1;
                     file_scopes.push(file_scope);
                 }
@@ -3507,10 +3511,10 @@ impl BaseScopeExtractionParser {
         // Check for code after the last scope
         if current_line <= total_lines {
             let gap_content = lines[current_line - 1..].join("\n");
-            let first_line = current_line + leading_blank_lines(&gap_content);
             let gap_content = gap_content.trim();
             if self.has_meaningful_content(gap_content) {
-                let file_scope = self.create_file_scope_at(gap_content, current_line, total_lines, first_line, file_path, file_scope_index, file_imports);
+                let references = lignes_de(&masque, current_line, total_lines);
+                let file_scope = self.create_file_scope_at(gap_content, current_line, total_lines, (&references, current_line), file_path, file_scope_index, file_imports);
                 file_scopes.push(file_scope);
             }
         }
@@ -3545,20 +3549,21 @@ impl BaseScopeExtractionParser {
     /// Create a file scope from code content
 
     pub fn create_file_scope(&self, content: &str, start_line: usize, end_line: usize, file_path: &str, index: usize, file_imports: &[ImportReference]) -> ScopeInfo {
-        self.create_file_scope_at(content, start_line, end_line, start_line, file_path, index, file_imports)
+        self.create_file_scope_at(content, start_line, end_line, (content, start_line), file_path, index, file_imports)
     }
 
-    /// Comme [`Self::create_file_scope`], quand `content` a été rogné : sa
-    /// première ligne est la ligne `content_first_line` du fichier, et c'est
-    /// d'elle que partent les lignes des références.
-    fn create_file_scope_at(&self, content: &str, start_line: usize, end_line: usize, content_first_line: usize, file_path: &str, index: usize, file_imports: &[ImportReference]) -> ScopeInfo {
+    /// Comme [`Self::create_file_scope`], quand `content` a été rogné : les
+    /// références se lisent sur `references.0`, le texte non rogné de la zone
+    /// (chaînes et commentaires effacés), dont la première ligne est la ligne
+    /// `references.1` du fichier.
+    fn create_file_scope_at(&self, content: &str, start_line: usize, end_line: usize, references: (&str, usize), file_path: &str, index: usize, file_imports: &[ImportReference]) -> ScopeInfo {
         let name = format!("file_scope_{:02}", index);
         let lines_of_code = end_line - start_line + 1;
 
         let variables = self.extract_top_level_variables(content, start_line as f64);
 
         let reference_exclusions = HashSet::new();
-        let identifier_references = self.extract_identifier_references_from_text(content, reference_exclusions, content_first_line as f64);
+        let identifier_references = self.extract_identifier_references_from_text(references.0, reference_exclusions, references.1 as f64);
         let import_references = self.resolve_imports_for_scope(&identifier_references, file_imports);
 
         let dependencies = self.extract_dependencies(content);
@@ -3626,8 +3631,11 @@ impl BaseScopeExtractionParser {
     /// Extract container-level scopes (code between methods/members inside a class, namespace, etc.)
     /// This captures class properties, static blocks, and other code between defined member scopes.
 
-    pub fn extract_container_scopes(&self, content: &str, child_scopes: &[ScopeInfo], container_name: &str, container_start_line: f64, container_end_line: f64, file_path: &str, depth: usize, file_imports: &[ImportReference]) -> Vec<ScopeInfo> {
+    /// `conteneur` : le nœud du conteneur, dont les chaînes et les
+    /// commentaires sont effacés avant la lecture des références.
+    pub fn extract_container_scopes(&self, conteneur: SyntaxNode, content: &str, child_scopes: &[ScopeInfo], container_name: &str, container_start_line: f64, container_end_line: f64, file_path: &str, depth: usize, file_imports: &[ImportReference]) -> Vec<ScopeInfo> {
         let mut container_scopes: Vec<ScopeInfo> = Vec::new();
+        let masque = mask_strings_and_comments(conteneur, content);
         let lines: Vec<&str> = content.split('\n').collect();
 
         let mut sorted_children: Vec<&ScopeInfo> = child_scopes.iter().collect();
@@ -3649,7 +3657,8 @@ impl BaseScopeExtractionParser {
                     let gap_content = gap_content.trim();
 
                     if self.has_meaningful_content(gap_content) {
-                        let cs = self.create_container_scope(gap_content, gap_start, gap_end, container_name, file_path, scope_index, depth, file_imports);
+                        let references = lignes_de(&masque, gap_start, gap_end);
+                        let cs = self.create_container_scope_at(gap_content, gap_start, gap_end, (&references, gap_start), container_name, file_path, scope_index, depth, file_imports);
                         scope_index += 1;
                         container_scopes.push(cs);
                     }
@@ -3665,7 +3674,8 @@ impl BaseScopeExtractionParser {
                 let gap_content = lines[current_line - 1..end_idx].join("\n");
                 let gap_content = gap_content.trim();
                 if self.has_meaningful_content(gap_content) {
-                    let cs = self.create_container_scope(gap_content, current_line, end_idx, container_name, file_path, scope_index, depth, file_imports);
+                    let references = lignes_de(&masque, current_line, end_idx);
+                    let cs = self.create_container_scope_at(gap_content, current_line, end_idx, (&references, current_line), container_name, file_path, scope_index, depth, file_imports);
                     container_scopes.push(cs);
                 }
             }
@@ -3677,13 +3687,20 @@ impl BaseScopeExtractionParser {
     /// Create a container scope from code content (code between methods in a class, etc.)
 
     pub fn create_container_scope(&self, content: &str, start_line: usize, end_line: usize, container_name: &str, file_path: &str, index: usize, depth: usize, file_imports: &[ImportReference]) -> ScopeInfo {
+        self.create_container_scope_at(content, start_line, end_line, (content, start_line), container_name, file_path, index, depth, file_imports)
+    }
+
+    /// Comme [`Self::create_container_scope`], les références lues sur
+    /// `references.0` (le texte non rogné de la zone, chaînes et commentaires
+    /// effacés), dont la première ligne est la ligne `references.1`.
+    fn create_container_scope_at(&self, content: &str, start_line: usize, end_line: usize, references: (&str, usize), container_name: &str, file_path: &str, index: usize, depth: usize, file_imports: &[ImportReference]) -> ScopeInfo {
         let name = format!("{}-scope-{:02}", container_name, index);
         let lines_of_code = end_line - start_line + 1;
 
         let variables = self.extract_top_level_variables(content, start_line as f64);
 
         let reference_exclusions = HashSet::new();
-        let identifier_references = self.extract_identifier_references_from_text(content, reference_exclusions, start_line as f64);
+        let identifier_references = self.extract_identifier_references_from_text(references.0, reference_exclusions, references.1 as f64);
         let import_references = self.resolve_imports_for_scope(&identifier_references, file_imports);
 
         let dependencies = self.extract_dependencies(content);
@@ -3920,7 +3937,7 @@ impl BaseScopeExtractionParser {
         if !method_scopes.is_empty() {
             let object_start_line = (object_node.start_position().row + 1) as f64;
             let object_end_line = (object_node.end_position().row + 1) as f64;
-            let gap_scopes = self.extract_object_literal_gaps(content, &method_scopes, parent, object_start_line, object_end_line, "", depth, file_imports);
+            let gap_scopes = self.extract_object_literal_gaps(object_node, content, &method_scopes, parent, object_start_line, object_end_line, "", depth, file_imports);
             scopes.extend(gap_scopes);
         }
 
@@ -3929,8 +3946,11 @@ impl BaseScopeExtractionParser {
 
     /// Extract gaps between methods in an object literal as block scopes
 
-    pub fn extract_object_literal_gaps(&self, content: &str, method_scopes: &[ScopeInfo], parent: &str, object_start_line: f64, object_end_line: f64, file_path: &str, depth: usize, file_imports: &[ImportReference]) -> Vec<ScopeInfo> {
+    /// `objet` : le nœud de l'objet littéral, dont les chaînes et les
+    /// commentaires sont effacés avant la lecture des références.
+    pub fn extract_object_literal_gaps(&self, objet: SyntaxNode, content: &str, method_scopes: &[ScopeInfo], parent: &str, object_start_line: f64, object_end_line: f64, file_path: &str, depth: usize, file_imports: &[ImportReference]) -> Vec<ScopeInfo> {
         let mut gap_scopes: Vec<ScopeInfo> = Vec::new();
+        let masque = mask_strings_and_comments(objet, content);
         let lines: Vec<&str> = content.split('\n').collect();
 
         let mut sorted_methods: Vec<&ScopeInfo> = method_scopes.iter().collect();
@@ -3950,7 +3970,8 @@ impl BaseScopeExtractionParser {
                     let gap_content = lines[gap_start - 1..gap_end].join("\n");
                     let gap_content = gap_content.trim();
                     if self.has_meaningful_content(gap_content) {
-                        let gs = self.create_object_gap_scope(gap_content, gap_start, gap_end, parent, file_path, scope_index, depth, file_imports);
+                        let references = lignes_de(&masque, gap_start, gap_end);
+                        let gs = self.create_object_gap_scope_at(gap_content, gap_start, gap_end, (&references, gap_start), parent, file_path, scope_index, depth, file_imports);
                         scope_index += 1;
                         gap_scopes.push(gs);
                     }
@@ -3966,7 +3987,8 @@ impl BaseScopeExtractionParser {
                 let gap_content = lines[current_line - 1..end_idx].join("\n");
                 let gap_content = gap_content.trim();
                 if self.has_meaningful_content(gap_content) {
-                    let gs = self.create_object_gap_scope(gap_content, current_line, end_idx, parent, file_path, scope_index, depth, file_imports);
+                    let references = lignes_de(&masque, current_line, end_idx);
+                    let gs = self.create_object_gap_scope_at(gap_content, current_line, end_idx, (&references, current_line), parent, file_path, scope_index, depth, file_imports);
                     gap_scopes.push(gs);
                 }
             }
@@ -3978,11 +4000,18 @@ impl BaseScopeExtractionParser {
     /// Create a gap scope for code between methods in an object literal
 
     pub fn create_object_gap_scope(&self, content: &str, start_line: usize, end_line: usize, parent: &str, file_path: &str, index: usize, depth: usize, file_imports: &[ImportReference]) -> ScopeInfo {
+        self.create_object_gap_scope_at(content, start_line, end_line, (content, start_line), parent, file_path, index, depth, file_imports)
+    }
+
+    /// Comme [`Self::create_object_gap_scope`], les références lues sur
+    /// `references.0` (le texte non rogné de la zone, chaînes et commentaires
+    /// effacés), dont la première ligne est la ligne `references.1`.
+    fn create_object_gap_scope_at(&self, content: &str, start_line: usize, end_line: usize, references: (&str, usize), parent: &str, file_path: &str, index: usize, depth: usize, file_imports: &[ImportReference]) -> ScopeInfo {
         let name = format!("{}-scope-{:02}", parent, index);
         let lines_of_code = end_line - start_line + 1;
 
         let reference_exclusions = HashSet::new();
-        let identifier_references = self.extract_identifier_references_from_text(content, reference_exclusions, start_line as f64);
+        let identifier_references = self.extract_identifier_references_from_text(references.0, reference_exclusions, references.1 as f64);
         let import_references = self.resolve_imports_for_scope(&identifier_references, file_imports);
 
         let dependencies = self.extract_dependencies(content);
@@ -4407,7 +4436,7 @@ impl BaseScopeExtractionParser {
         if !inner_scopes.is_empty() {
             let block_start_line = (stmt_block.start_position().row + 1) as f64;
             let block_end_line = (stmt_block.end_position().row + 1) as f64;
-            let gap_scopes = self.extract_container_scopes(content, &inner_scopes, parent, block_start_line, block_end_line, "", depth, file_imports);
+            let gap_scopes = self.extract_container_scopes(stmt_block, content, &inner_scopes, parent, block_start_line, block_end_line, "", depth, file_imports);
             scopes.extend(gap_scopes);
         }
 
@@ -4567,7 +4596,7 @@ impl BaseScopeExtractionParser {
         if !method_scopes.is_empty() {
             let block_start_line = (stmt_block.start_position().row + 1) as f64;
             let block_end_line = (stmt_block.end_position().row + 1) as f64;
-            let gap_scopes = self.extract_container_scopes(content, &method_scopes, parent, block_start_line, block_end_line, "", depth, file_imports);
+            let gap_scopes = self.extract_container_scopes(stmt_block, content, &method_scopes, parent, block_start_line, block_end_line, "", depth, file_imports);
             scopes.extend(gap_scopes);
         }
 
@@ -4602,6 +4631,70 @@ fn is_comment_line(ligne: &str, dans_un_bloc: &mut bool) -> bool {
 fn leading_blank_lines(texte: &str) -> usize {
     let retire = texte.len() - texte.trim_start().len();
     texte[..retire].matches('\n').count()
+}
+
+/// **Le texte du fichier, chaînes et commentaires de `noeud` effacés** : leurs
+/// octets deviennent des blancs, les retours à la ligne restent (lignes et
+/// colonnes inchangées). Les scopes de fichier et de conteneur lisent leurs
+/// références sur le texte par une expression régulière : sans ce masque,
+/// chaque mot d'une chaîne (`"no more tool calls are possible"`) ou d'un
+/// commentaire en fin de ligne devenait une référence, reliée par le nom au
+/// premier homonyme du projet (`calls`, `is`, `with` : la sonde des marques
+/// sur rag3weaver, 11 octobre 2026). L'intérieur d'une interpolation
+/// (`${x}`, f-string, `{x}` de C#) est du code : il reste lisible.
+pub fn mask_strings_and_comments(noeud: SyntaxNode, content: &str) -> String {
+    fn effacer(octets: &mut [u8], debut: usize, fin: usize) {
+        for b in &mut octets[debut..fin] {
+            if *b != b'\n' {
+                *b = b' ';
+            }
+        }
+    }
+    fn est_commentaire(k: &str) -> bool {
+        k.contains("comment")
+    }
+    fn est_litteral(k: &str) -> bool {
+        (k.contains("string") && !k.contains("interpolation")) || k == "char_literal" || k == "regex" || k == "character_literal"
+    }
+    fn est_interpolation(k: &str) -> bool {
+        k.contains("interpolation") || k == "template_substitution"
+    }
+    fn parcourir(n: SyntaxNode, octets: &mut [u8], source: &[u8]) {
+        let k = n.kind();
+        if est_commentaire(k) {
+            effacer(octets, n.start_byte(), n.end_byte());
+            return;
+        }
+        if est_litteral(k) {
+            effacer(octets, n.start_byte(), n.end_byte());
+            // Les interpolations, rendues puis parcourues à leur tour (une
+            // chaîne dans une interpolation reste une chaîne).
+            let mut pile: Vec<SyntaxNode> = (0..n.child_count()).filter_map(|i| n.child(i)).collect();
+            while let Some(c) = pile.pop() {
+                if est_interpolation(c.kind()) {
+                    octets[c.start_byte()..c.end_byte()].copy_from_slice(&source[c.start_byte()..c.end_byte()]);
+                    parcourir(c, octets, source);
+                } else {
+                    pile.extend((0..c.child_count()).filter_map(|i| c.child(i)));
+                }
+            }
+            return;
+        }
+        for i in 0..n.child_count() {
+            if let Some(c) = n.child(i) {
+                parcourir(c, octets, source);
+            }
+        }
+    }
+    let mut octets = content.as_bytes().to_vec();
+    parcourir(noeud, &mut octets, content.as_bytes());
+    // Des plages entières de nœuds, donc des caractères entiers : l'UTF-8 reste valide.
+    String::from_utf8(octets).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+}
+
+/// Les lignes `debut..=fin` (numérotées à partir de 1) de `texte`.
+fn lignes_de(texte: &str, debut: usize, fin: usize) -> String {
+    texte.split('\n').skip(debut.saturating_sub(1)).take(fin + 1 - debut.max(1)).collect::<Vec<_>>().join("\n")
 }
 
 /// La clé sous laquelle une variable locale liée par un motif (`let x`,

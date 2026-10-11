@@ -221,3 +221,76 @@ fn rust_l_initialiseur_d_un_let_masquant_appelle_encore_la_fonction() {
         assert_eq!(sites, Some(vec![(UsageKind::Call, Some(3))]), "[{mode}] l'appel seul, pas la variable : {:#?}", lister(&rels));
     }
 }
+
+// ---------------------------------------------------------------------------
+// 6. Un mot de chaîne pris pour un symbole (scopes de fichier et de conteneur)
+// ---------------------------------------------------------------------------
+
+/// Les références (nom, ligne) des scopes lus sur le texte : scopes de
+/// fichier (`file_scope_NN`) et de conteneur (`Classe-scope-NN`).
+fn references_hors_scope(nom: &str, src: &str) -> Vec<(String, usize)> {
+    let chemin = format!("/virtual/{nom}");
+    let analyse = ProjectParser::new(ProjectParserOptions { verbose: false }).parse_project(ParseProjectOptions {
+        root: "/virtual".to_string(),
+        files: vec![chemin.clone()],
+        content_map: Some(HashMap::from([(chemin.clone(), src.to_string())])),
+        resolve_relationships: Some(false),
+        resolver_options: None,
+    });
+    analyse.files[&chemin]
+        .scopes
+        .iter()
+        .filter(|s| s.name.starts_with("file_scope") || s.name.contains("-scope-"))
+        .flat_map(|s| s.identifier_references.iter().map(|r| (r.identifier.clone(), r.line)))
+        .collect()
+}
+
+fn noms(refs: &[(String, usize)]) -> Vec<&str> {
+    refs.iter().map(|(n, _)| n.as_str()).collect()
+}
+
+#[test]
+fn rust_un_mot_de_chaine_au_niveau_fichier_n_est_pas_une_reference() {
+    // agent.rs:476 : les mots de `FINAL_NUDGE` (« calls », « is », « with »)
+    // reliaient le scope de fichier par le nom aux homonymes du projet (sonde
+    // des marques sur rag3weaver, 11 octobre 2026).
+    let src = "/// Le texte du dernier tour.\npub const FINAL_NUDGE: &str = \"This is your last step: no more tool calls are possible. \\\nAnswer now with what you have.\";\npub const BRUT: &str = r#\"calls \"with\" is\"#;\npub const C: char = 'x';\n";
+    let refs = references_hors_scope("agent.rs", src);
+    let n = noms(&refs);
+    for mot in ["This", "is", "calls", "possible", "Answer", "with", "have", "x"] {
+        assert!(!n.contains(&mot), "« {mot} » est dans une chaîne : {refs:?}");
+    }
+    assert!(refs.contains(&("FINAL_NUDGE".to_string(), 2)), "le nom de la constante reste, à sa ligne : {refs:?}");
+    assert!(refs.contains(&("BRUT".to_string(), 4)), "{refs:?}");
+}
+
+#[test]
+fn cpp_un_commentaire_en_fin_de_ligne_n_est_pas_une_reference() {
+    let src = "static int compte = 0; // calls with the lock held\nstatic const char* NOM = \"is shared\"; /* when */\n";
+    let refs = references_hors_scope("a.cpp", src);
+    let n = noms(&refs);
+    for mot in ["calls", "with", "lock", "held", "is", "shared", "when"] {
+        assert!(!n.contains(&mot), "« {mot} » est dans un commentaire ou une chaîne : {refs:?}");
+    }
+    assert!(n.contains(&"compte") && n.contains(&"NOM"), "{refs:?}");
+}
+
+#[test]
+fn typescript_une_interpolation_reste_du_code() {
+    // `${cible}` nomme une variable ; le texte autour n'est que du texte.
+    // Le corps de classe hors méthodes est un scope de conteneur, lu sur le texte.
+    let src = "class Outil {\n  nom = \"is shared\";\n  titre = `calls ${CIBLE} with`;\n  run() { return 1; }\n}\n";
+    let refs = references_hors_scope("a.ts", src);
+    let n = noms(&refs);
+    for mot in ["calls", "with", "is", "shared"] {
+        assert!(!n.contains(&mot), "« {mot} » est dans une chaîne : {refs:?}");
+    }
+    assert!(refs.contains(&("CIBLE".to_string(), 3)), "l'interpolation reste lue, à sa ligne : {refs:?}");
+}
+
+#[test]
+fn la_ligne_d_une_reference_ne_bouge_pas_apres_un_commentaire_de_tete() {
+    let src = "struct S;\n\n// Une note.\n\nconst N: usize = TAILLE;\n";
+    let refs = references_hors_scope("l.rs", src);
+    assert!(refs.contains(&("TAILLE".to_string(), 5)), "{refs:?}");
+}

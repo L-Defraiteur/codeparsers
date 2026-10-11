@@ -154,7 +154,7 @@ impl RustScopeExtractionParser {
         let structured_imports: Vec<ImportReference> = tous_les_imports.iter().filter(|i| !i.is_local).cloned().collect();
         let mut scopes = Vec::new();
         self.extract_scopes(root_node, &mut scopes, content, 0, None, &structured_imports, file_path);
-        let file_scopes = self.base.extract_file_scopes(content, &scopes, file_path, &structured_imports);
+        let file_scopes = self.base.extract_file_scopes(root_node, content, &scopes, file_path, &structured_imports);
         scopes.extend(file_scopes);
         scopes.sort_by_key(|s| s.scope_start_line);
         let scope_index = self.base.classify_scope_references(&mut scopes, &structured_imports);
