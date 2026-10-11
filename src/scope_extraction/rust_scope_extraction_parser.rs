@@ -216,6 +216,14 @@ impl RustScopeExtractionParser {
         if node.kind() == "impl_item" {
             let mut scope = self.extract_impl(node, content, depth, parent, file_imports);
             scope.file_path = file_path.to_string();
+            // **Un bloc `impl` prolonge un type défini ailleurs** (sa struct,
+            // son enum) : même nom, mais pas une seconde définition. Le
+            // modificateur `impl` le dit au consommateur, qui ne le compte
+            // pas parmi les définisseurs du nom (T1 de la session
+            // recherche, 11 octobre 2026).
+            if !scope.modifiers.iter().any(|m| m == "impl") {
+                scope.modifiers.push("impl".to_string());
+            }
             let scope_name = scope.name.clone();
             scopes.push(scope);
 
