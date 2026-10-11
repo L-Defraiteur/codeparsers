@@ -150,6 +150,7 @@ impl CppScopeExtractionParser {
         self.extract_scopes(root_node, &mut scopes, content, 0, None, &structured_imports, file_path);
         let file_scopes = self.base.extract_file_scopes(content, &scopes, file_path, &structured_imports);
         scopes.extend(file_scopes);
+        self.base.attach_file_level_prototypes(root_node, content, &mut scopes);
         scopes.sort_by_key(|s| s.scope_start_line);
         attach_includes_to_scopes(&mut scopes, &structured_imports);
         let scope_index = self.base.classify_scope_references(&mut scopes, &structured_imports);
@@ -394,8 +395,10 @@ impl CppScopeExtractionParser {
             return;
         }
 
-        // Handle class/struct with methods
-        if node.kind() == "class_specifier" || node.kind() == "struct_specifier" {
+        // Handle class/struct with methods — une définition seulement : une
+        // déclaration anticipée (`class Foo;`) ou un type cité (`struct Point*
+        // p`) nomme la classe, il ne la définit pas.
+        if (node.kind() == "class_specifier" || node.kind() == "struct_specifier") && node.child_by_field_name("body").is_some() {
             let mut scope = self.extract_cpp_class(node, content, depth, parent, file_imports);
             scope.file_path = file_path.to_string();
             let scope_name = scope.name.clone();

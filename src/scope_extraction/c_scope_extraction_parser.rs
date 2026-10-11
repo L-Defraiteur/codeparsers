@@ -129,6 +129,7 @@ impl CScopeExtractionParser {
         self.extract_scopes(root_node, &mut scopes, content, 0, None, &structured_imports, file_path);
         let file_scopes = self.base.extract_file_scopes(content, &scopes, file_path, &structured_imports);
         scopes.extend(file_scopes);
+        self.base.attach_file_level_prototypes(root_node, content, &mut scopes);
         scopes.sort_by_key(|s| s.scope_start_line);
         let scope_index = self.base.classify_scope_references(&mut scopes, &structured_imports);
         self.base.attach_signature_references(&mut scopes, &scope_index, &structured_imports);
@@ -166,8 +167,10 @@ impl CScopeExtractionParser {
             return;
         }
 
-        // Handle struct specifiers
-        if node.kind() == "struct_specifier" {
+        // Handle struct specifiers — une définition seulement : `struct Point`
+        // sans corps (un paramètre, une déclaration anticipée) nomme le type,
+        // il ne le définit pas.
+        if node.kind() == "struct_specifier" && node.child_by_field_name("body").is_some() {
             let mut scope = self.extract_class(node, content, depth, parent, file_imports);
             scope.file_path = file_path.to_string();
             scopes.push(scope);

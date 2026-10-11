@@ -3372,6 +3372,91 @@ impl BaseScopeExtractionParser {
     /// Extract file-level scopes (code outside of defined scopes like functions, classes, etc.)
     /// This captures top-level code, variable declarations, object literals, etc.
 
+    /// **Les prototypes de fonction du niveau fichier** (C, C++ : `int
+    /// libre(int a);` dans un en-tête, sous `#ifndef`, sous `extern "C"`) : un
+    /// membre `Function` du scope de fichier qui les couvre, et leurs noms —
+    /// la fonction, ses paramètres — retirés des références de ce scope, lues
+    /// sur le texte (ticket du 4 octobre). Les types cités restent des
+    /// références : `aire(const struct Point* p)` se sert de `Point`.
+    pub fn attach_file_level_prototypes(&self, root: SyntaxNode, content: &str, scopes: &mut [ScopeInfo]) {
+        fn nom_simple(n: SyntaxNode, content: &str) -> Option<String> {
+            let mut d = Some(n);
+            while let Some(x) = d {
+                match x.kind() {
+                    "identifier" | "field_identifier" => return content.get(x.start_byte()..x.end_byte()).map(str::to_string),
+                    "qualified_identifier" => d = x.child_by_field_name("name"),
+                    "pointer_declarator" | "reference_declarator" | "array_declarator" | "init_declarator" | "function_declarator" | "parenthesized_declarator" => {
+                        d = x.child_by_field_name("declarator").or_else(|| x.named_child(0))
+                    }
+                    _ => return None,
+                }
+            }
+            None
+        }
+        fn declarateur_de_fonction(n: SyntaxNode) -> Option<SyntaxNode> {
+            let mut d = n.child_by_field_name("declarator")?;
+            loop {
+                match d.kind() {
+                    "function_declarator" => return Some(d),
+                    "pointer_declarator" | "reference_declarator" | "init_declarator" => d = d.child_by_field_name("declarator")?,
+                    _ => return None,
+                }
+            }
+        }
+        // (ligne de début, ligne de fin, nom, paramètres, signature, retour)
+        let mut prototypes: Vec<(usize, usize, String, Vec<String>, String, Option<String>)> = Vec::new();
+        let mut pile = vec![root];
+        while let Some(n) = pile.pop() {
+            match n.kind() {
+                "translation_unit" | "preproc_ifdef" | "preproc_if" | "preproc_else" | "preproc_elif" | "preproc_elifdef" | "linkage_specification" | "declaration_list" => {
+                    let mut c = n.walk();
+                    for e in n.named_children(&mut c) {
+                        pile.push(e);
+                    }
+                }
+                "declaration" => {
+                    let Some(fd) = declarateur_de_fonction(n) else { continue };
+                    let Some(nom) = fd.child_by_field_name("declarator").and_then(|d| nom_simple(d, content)) else { continue };
+                    let mut params = Vec::new();
+                    if let Some(liste) = fd.child_by_field_name("parameters") {
+                        let mut c = liste.walk();
+                        for p in liste.named_children(&mut c) {
+                            if let Some(d) = p.child_by_field_name("declarator").and_then(|d| nom_simple(d, content)) {
+                                params.push(d);
+                            }
+                        }
+                    }
+                    let signature = self.get_node_text(Some(n), content).trim().trim_end_matches(';').trim().to_string();
+                    let retour = n.child_by_field_name("type").map(|t| self.get_node_text(Some(t), content));
+                    prototypes.push((n.start_position().row + 1, n.end_position().row + 1, nom, params, signature, retour));
+                }
+                _ => {}
+            }
+        }
+        for (debut, fin, nom, params, signature, retour) in prototypes {
+            let Some(fichier) = scopes.iter_mut().find(|s| {
+                s.r#type == ScopeInfoType::Module && s.name.starts_with("file_scope") && s.scope_start_line <= debut && fin <= s.scope_end_line
+            }) else {
+                continue;
+            };
+            fichier.identifier_references.retain(|r| !(debut <= r.line && r.line <= fin && (r.identifier == nom || params.contains(&r.identifier))));
+            let membres = fichier.members.get_or_insert_with(Vec::new);
+            if !membres.iter().any(|m| m.name == nom) {
+                membres.push(ClassMemberInfo {
+                    name: nom,
+                    r#type: retour,
+                    member_type: crate::scope_extraction::types::ClassMemberInfoMemberType::Function,
+                    accessibility: None,
+                    is_static: false,
+                    is_readonly: false,
+                    line: debut,
+                    signature: Some(signature),
+                    value: None,
+                });
+            }
+        }
+    }
+
     pub fn extract_file_scopes(&self, content: &str, existing_scopes: &[ScopeInfo], file_path: &str, file_imports: &[ImportReference]) -> Vec<ScopeInfo> {
         let mut file_scopes: Vec<ScopeInfo> = Vec::new();
         let lines: Vec<&str> = content.split('\n').collect();
