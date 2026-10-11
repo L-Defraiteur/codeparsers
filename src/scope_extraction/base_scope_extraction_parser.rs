@@ -2658,6 +2658,7 @@ impl BaseScopeExtractionParser {
     module_path: None,
                                 source: source.clone(), imported: raw_symbol.to_string(),
                                 alias, kind: ImportReferenceKind::Named, is_local: local, line: Some(line_num),
+                                reexport: false,
                             });
                         }
                     }
@@ -2669,6 +2670,7 @@ impl BaseScopeExtractionParser {
                             source: source.clone(), imported: "*".to_string(),
                             alias: Some(am[1].trim().to_string()), kind: ImportReferenceKind::Namespace,
                             is_local: local, line: Some(line_num),
+                            reexport: false,
                         });
                     }
                 } else if !part.is_empty() {
@@ -2677,6 +2679,7 @@ impl BaseScopeExtractionParser {
                         source: source.clone(), imported: "default".to_string(),
                         alias: Some(part.to_string()), kind: ImportReferenceKind::Default,
                         is_local: local, line: Some(line_num),
+                        reexport: false,
                     });
                 }
             }
@@ -2692,6 +2695,7 @@ impl BaseScopeExtractionParser {
     module_path: None,
                 source, imported: "*".to_string(), alias: None,
                 kind: ImportReferenceKind::SideEffect, is_local: local, line: Some(line_num),
+                reexport: false,
             });
         }
 
@@ -2714,6 +2718,7 @@ impl BaseScopeExtractionParser {
                             source: source.clone(), imported: symbol.to_string(),
                             alias, kind: ImportReferenceKind::Dynamic,
                             is_local: local, line: Some(line_num),
+                            reexport: false,
                         });
                     }
                 }
@@ -2722,6 +2727,7 @@ impl BaseScopeExtractionParser {
     module_path: None,
                     source, imported: "*".to_string(), alias: Some(specifier),
                     kind: ImportReferenceKind::Dynamic, is_local: local, line: Some(line_num),
+                    reexport: false,
                 });
             }
         }
@@ -2738,6 +2744,7 @@ impl BaseScopeExtractionParser {
     module_path: None,
                 source, imported, alias: None,
                 kind: ImportReferenceKind::Dynamic, is_local: local, line: Some(line_num),
+                reexport: false,
             });
         }
 

@@ -35,6 +35,13 @@ pub struct ImportReference {
     pub kind: ImportReferenceKind,
     pub is_local: bool,
     pub line: Option<usize>,
+    /// **Une réexportation** : `pub use runtime::DataflowEvent` rend le nom
+    /// visible depuis ce module-ci. Un consommateur qui suit
+    /// `crate::dataflow::DataflowEvent` jusqu'à `dataflow/mod.rs` y trouve
+    /// le module où aller (`module_path`). Rust : un `use` public (`pub`,
+    /// `pub(crate)`…).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reexport: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

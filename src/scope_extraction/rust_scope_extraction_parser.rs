@@ -1560,7 +1560,10 @@ fn collect_use_declarations(n: SyntaxNode, content: &str, out: &mut Vec<ImportRe
     if n.kind() == "use_declaration" {
         if let Some(arg) = n.child_by_field_name("argument") {
             let ligne = n.start_position().row + 1;
-            collect_use_tree(arg, &[], content, ligne, out);
+            // `pub use` (et `pub(crate) use`…) : une réexportation.
+            let mut c = n.walk();
+            let public = n.children(&mut c).any(|x| x.kind() == "visibility_modifier");
+            collect_use_tree(arg, &[], content, ligne, public, out);
         }
         return;
     }
@@ -1580,7 +1583,7 @@ fn path_segments(n: SyntaxNode, content: &str) -> Vec<String> {
         .collect()
 }
 
-fn collect_use_tree(n: SyntaxNode, prefixe: &[String], content: &str, ligne: usize, out: &mut Vec<ImportReference>) {
+fn collect_use_tree(n: SyntaxNode, prefixe: &[String], content: &str, ligne: usize, public: bool, out: &mut Vec<ImportReference>) {
     use crate::scope_extraction::types::ImportReferenceKind;
     let pousser = |chemin: Vec<String>, alias: Option<String>, glob: bool, out: &mut Vec<ImportReference>| {
         let Some(racine) = chemin.first().cloned() else { return };
@@ -1607,6 +1610,7 @@ fn collect_use_tree(n: SyntaxNode, prefixe: &[String], content: &str, ligne: usi
             kind: if glob { ImportReferenceKind::Namespace } else { ImportReferenceKind::Named },
             is_local: local,
             line: Some(ligne),
+            reexport: public,
         });
     };
     match n.kind() {
@@ -1641,13 +1645,13 @@ fn collect_use_tree(n: SyntaxNode, prefixe: &[String], content: &str, ligne: usi
                 chemin.extend(path_segments(p, content));
             }
             if let Some(liste) = n.child_by_field_name("list") {
-                collect_use_tree(liste, &chemin, content, ligne, out);
+                collect_use_tree(liste, &chemin, content, ligne, public, out);
             }
         }
         "use_list" => {
             let mut c = n.walk();
             for enfant in n.named_children(&mut c) {
-                collect_use_tree(enfant, prefixe, content, ligne, out);
+                collect_use_tree(enfant, prefixe, content, ligne, public, out);
             }
         }
         _ => {}

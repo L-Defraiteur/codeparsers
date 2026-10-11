@@ -1361,6 +1361,7 @@ impl PythonScopeExtractionParser {
                         kind: ImportReferenceKind::Namespace,
                         is_local: module_name.starts_with('.'),
                         line: Some(line_num),
+                        reexport: false,
                     }, &mut seen, &mut refs);
                 }
             }
@@ -1383,6 +1384,7 @@ impl PythonScopeExtractionParser {
                             kind: ImportReferenceKind::Namespace,
                             is_local: source.starts_with('.'),
                             line: Some(line_num),
+                            reexport: false,
                         }, &mut seen, &mut refs);
                     } else {
                         let as_parts: Vec<&str> = as_re.splitn(trimmed, 2).collect();
@@ -1398,6 +1400,7 @@ impl PythonScopeExtractionParser {
                             kind: ImportReferenceKind::Named,
                             is_local: source.starts_with('.'),
                             line: Some(line_num),
+                            reexport: false,
                         }, &mut seen, &mut refs);
                     }
                 }

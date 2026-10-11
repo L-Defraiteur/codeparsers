@@ -1330,6 +1330,7 @@ fn collect_includes(n: SyntaxNode, content: &str, out: &mut Vec<ImportReference>
                     kind: crate::scope_extraction::types::ImportReferenceKind::SideEffect,
                     is_local: local,
                     line: Some(n.start_position().row + 1),
+                    reexport: false,
                 });
             }
         }
