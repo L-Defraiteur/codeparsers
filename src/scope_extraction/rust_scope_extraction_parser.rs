@@ -483,6 +483,18 @@ impl RustScopeExtractionParser {
         for symbol in &local_symbols {
             reference_exclusions.insert(symbol.clone());
         }
+        // Les paramètres des méthodes du bloc ne sont pas des usages : lu sur
+        // tout le corps, le bloc relevait `f` de `fn fmt(&self, f: &mut
+        // Formatter)`, relié par le seul nom à une fonction `f` d'ailleurs
+        // (ticket du 4 octobre, « le nom seul »).
+        if let Some(liste) = node.child_by_field_name("body") {
+            let mut c = liste.walk();
+            for f in liste.named_children(&mut c).filter(|x| x.kind() == "function_item") {
+                for p in self.extract_rust_parameters(f, content) {
+                    reference_exclusions.insert(p.name);
+                }
+            }
+        }
 
         let mut identifier_references = self.extract_identifier_references(node, content, reference_exclusions);
 
@@ -1467,7 +1479,9 @@ fn visit_rust_type_refs(
         let ids: Vec<SyntaxNode> = current.children(&mut cursor)
             .filter(|c| c.kind() == "identifier" || c.kind() == "type_identifier")
             .collect();
-        if let Some(last_id) = ids.last() {
+        // Un chemin intérieur (`crate::dataflow` dans `crate::dataflow::X`)
+        // finit par un segment de module : pas une référence.
+        if let Some(last_id) = ids.last().filter(|l| !crate::scope_extraction::base_scope_extraction_parser::segment_de_module(**l, content)) {
             let identifier = parser.base.get_node_text(Some(*last_id), content);
             if !identifier.is_empty()
                 && !exclude.contains(&identifier)

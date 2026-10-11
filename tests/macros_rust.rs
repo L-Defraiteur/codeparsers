@@ -67,10 +67,11 @@ fn le_cas_du_ticket_garde_son_chemin() {
     let run: Vec<&IdentifierReference> = r.iter().filter(|(s, x)| s == "dans_macro" && x.identifier == "run").map(|(_, x)| x).collect();
     assert_eq!(run.len(), 1, "{r:#?}");
     assert_eq!(run[0].qualifier.as_deref(), Some("crate::b"));
-    // Comme hors macro : la tête `crate` ne sort pas, le segment `b` porte
-    // le qualificatif de ce qui le précède.
-    let b: Vec<Option<&str>> = r.iter().filter(|(s, x)| s == "dans_macro" && x.identifier == "b").map(|(_, x)| x.qualifier.as_deref()).collect();
-    assert_eq!(b, vec![Some("crate")], "{r:#?}");
+    // Comme hors macro : la tête `crate` ne sort pas, et le segment `b`, qui
+    // nomme un module, n'est pas une référence (ticket « le nom seul et les
+    // segments de module », 11 octobre 2026 ; il sortait avant, qualifié par
+    // `crate`, des deux côtés).
+    assert!(!r.iter().any(|(s, x)| s == "dans_macro" && x.identifier == "b"), "{r:#?}");
 }
 
 #[test]

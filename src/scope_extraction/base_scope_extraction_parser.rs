@@ -2366,6 +2366,17 @@ impl BaseScopeExtractionParser {
     ) {
         let kind = current.kind();
 
+        // **Un segment de chemin qui nomme un module n'est pas une référence**
+        // (Rust ; ticket du 4 octobre) : `dataflow` dans
+        // `crate::dataflow::runtime::lancer()` — vrai, mais il n'apprend rien
+        // et encombre les voisinages. Un préfixe en minuscules : le `path`
+        // d'un chemin, ou le `name` d'un chemin qui sert lui-même de `path`.
+        // Un préfixe en majuscule (`DataflowEvent::neuf()`) nomme un type, il
+        // reste une référence.
+        if matches!(self.language, SupportedLanguage::Rust) && kind == "identifier" && segment_de_module(current, content) {
+            return;
+        }
+
         // **Un attribut de compilation n'est pas une référence** : `#[cfg(test)]`,
         // `#![allow(…)]`, `[[nodiscard]]`, `__attribute__((…))` parlent au
         // compilateur, pas d'une chose du projet ; leurs noms (`cfg`, `test`)
@@ -2488,6 +2499,11 @@ impl BaseScopeExtractionParser {
                         }
                         ecarte_avant = true;
                     }
+                }
+
+                // Un segment de module (voir plus haut) : pas une référence.
+                if matches!(self.language, SupportedLanguage::Rust) && segment_de_module(current, content) {
+                    return;
                 }
 
                 let row = current.start_position().row;
@@ -4631,6 +4647,26 @@ pub fn masquer_les_macros_d_attribut(content: &str) -> std::borrow::Cow<'_, str>
         }
     }
     std::borrow::Cow::Owned(String::from_utf8(octets).expect("seuls des octets ASCII remplacés"))
+}
+
+/// `n` est-il un segment de module dans un chemin Rust (voir
+/// `extract_identifier_references_visit`) ?
+pub(crate) fn segment_de_module(n: SyntaxNode, content: &str) -> bool {
+    let est_chemin = |k: &str| matches!(k, "scoped_identifier" | "scoped_type_identifier" | "scoped_use_list");
+    let meme = |a: Option<SyntaxNode>, b: SyntaxNode| a.is_some_and(|x| x.id() == b.id());
+    let Some(p) = n.parent() else { return false };
+    let minuscule = content.get(n.start_byte()..n.end_byte()).is_some_and(|t| t.starts_with(|c: char| c.is_lowercase()));
+    // Dans les jetons d'une macro (`assert!(crate::b::run())`) : un nom suivi
+    // de `::` est un préfixe de chemin, comme hors macro.
+    if p.kind() == "token_tree" {
+        return minuscule && n.next_sibling().is_some_and(|s| s.kind() == "::");
+    }
+    if !est_chemin(p.kind()) {
+        return false;
+    }
+    let prefixe = meme(p.child_by_field_name("path"), n)
+        || (meme(p.child_by_field_name("name"), n) && p.parent().is_some_and(|gp| est_chemin(gp.kind()) && meme(gp.child_by_field_name("path"), p)));
+    prefixe && minuscule
 }
 
 /// La clé qui dit qu'une variable a un type lisible : son accès qualifié
