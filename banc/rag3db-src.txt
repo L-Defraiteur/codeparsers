@@ -1,16 +1,16 @@
 # banc de couverture — rag3db-src
 analyse.cpp.erreur_pct = 1.4
-entre_fichiers.non_resolues = 69756
+entre_fichiers.non_resolues = 69745
 entre_fichiers.non_resolues.genre.class = 9842
 entre_fichiers.non_resolues.genre.enum = 1
-entre_fichiers.non_resolues.genre.function = 50506
+entre_fichiers.non_resolues.genre.function = 50495
 entre_fichiers.non_resolues.genre.lambda = 1338
 entre_fichiers.non_resolues.genre.method = 7475
 entre_fichiers.non_resolues.genre.module = 143
 entre_fichiers.non_resolues.genre.namespace = 451
 entre_fichiers.non_resolues.raison.aucun_scope_de_ce_nom_dans_le_projet = 55272
-entre_fichiers.non_resolues.raison.plusieurs_candidats = 11152
-entre_fichiers.non_resolues.raison.un_candidat,_écarté = 3332
+entre_fichiers.non_resolues.raison.plusieurs_candidats = 11149
+entre_fichiers.non_resolues.raison.un_candidat,_écarté = 3324
 entre_fichiers.refs.call = 28186
 entre_fichiers.refs.call.relies_pct = 41.5
 entre_fichiers.refs.import = 1391

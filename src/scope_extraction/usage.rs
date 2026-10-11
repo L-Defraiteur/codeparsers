@@ -356,6 +356,29 @@ pub(crate) fn texte<'a>(n: Node, content: &'a str) -> &'a str {
 
 fn collect_typed(n: Node, content: &str, vus: &mut std::collections::HashMap<String, Option<String>>) {
     let k = n.kind();
+    // C++ : `for (T x : v)` — `x` a le type écrit ; `for (auto& x : v)`, le
+    // type de l'élément de `v`, lu sur sa déclaration dans la fonction.
+    if k == "for_range_loop" {
+        if let Some(nom) = n.child_by_field_name("declarator").and_then(|d| simple_name(d, content)) {
+            let ecrit = n.child_by_field_name("type").map(|t| texte(t, content)).unwrap_or("");
+            let type_ = if ecrit.split(|c: char| !c.is_alphanumeric() && c != '_').any(|w| w == "auto") {
+                n.child_by_field_name("right").and_then(|r| element_cpp(r, n, content))
+            } else {
+                base_type_name(ecrit)
+            };
+            if let Some(t) = type_ {
+                match vus.get(&nom) {
+                    Some(Some(ancien)) if *ancien != t => {
+                        vus.insert(nom, None);
+                    }
+                    Some(None) => {}
+                    _ => {
+                        vus.insert(nom, Some(t));
+                    }
+                }
+            }
+        }
+    }
     let liaison = match k {
         "let_declaration" => Some((n.child_by_field_name("pattern"), n.child_by_field_name("type"), n.child_by_field_name("value"))),
         "parameter" | "required_parameter" | "optional_parameter" => {
@@ -398,6 +421,73 @@ fn collect_typed(n: Node, content: &str, vus: &mut std::collections::HashMap<Str
     for enfant in n.named_children(&mut c) {
         collect_typed(enfant, content, vus);
     }
+}
+
+/// Les conteneurs C++ dont une boucle rend l'élément (leur premier argument
+/// de gabarit). Un dictionnaire rend une paire : pas d'élément simple.
+const CONTENEURS_CPP: &[&str] = &["vector", "list", "deque", "set", "unordered_set", "multiset", "span", "array", "initializer_list", "forward_list"];
+
+/// **Le type de l'élément de `droite`** dans `for (auto x : droite)` : sa
+/// déclaration (paramètre ou locale) dans la fonction englobante, avant la
+/// boucle, un conteneur de [`CONTENEURS_CPP`] — son premier argument,
+/// déballé (`unique_ptr<T>`, `T*` → `T`). Un nom déclaré deux fois, ou
+/// ailleurs (un champ) : rien.
+fn element_cpp(droite: Node, boucle: Node, content: &str) -> Option<String> {
+    let nom = texte(droite, content).trim();
+    if droite.kind() != "identifier" || nom.is_empty() {
+        return None;
+    }
+    let mut fonction = boucle.parent();
+    while let Some(f) = fonction {
+        if matches!(f.kind(), "function_definition" | "lambda_expression") {
+            break;
+        }
+        fonction = f.parent();
+    }
+    let mut ecrits: Vec<String> = Vec::new();
+    fn chercher(n: Node, nom: &str, avant: usize, content: &str, ecrits: &mut Vec<String>) {
+        if n.start_byte() >= avant {
+            return;
+        }
+        if matches!(n.kind(), "parameter_declaration" | "declaration") {
+            let decl = n.child_by_field_name("declarator");
+            let d = match decl {
+                Some(d) if d.kind() == "init_declarator" => d.child_by_field_name("declarator"),
+                d => d,
+            };
+            if d.and_then(|d| simple_name(d, content)).as_deref() == Some(nom) {
+                if let Some(t) = n.child_by_field_name("type") {
+                    ecrits.push(texte(t, content).to_string());
+                }
+            }
+        }
+        let mut c = n.walk();
+        for e in n.named_children(&mut c) {
+            chercher(e, nom, avant, content, ecrits);
+        }
+    }
+    chercher(fonction?, nom, boucle.start_byte(), content, &mut ecrits);
+    let [ecrit] = ecrits.as_slice() else { return None };
+    let ecrit = ecrit.trim().trim_start_matches("const ").trim();
+    let (tete, reste) = ecrit.split_once('<')?;
+    let conteneur = tete.trim().rsplit("::").next()?;
+    if !CONTENEURS_CPP.contains(&conteneur) {
+        return None;
+    }
+    let mut prof = 0usize;
+    let mut fin = reste.len();
+    for (i, c) in reste.char_indices() {
+        match c {
+            '<' | '(' => prof += 1,
+            '>' | ')' if prof > 0 => prof -= 1,
+            ',' | '>' if prof == 0 => {
+                fin = i;
+                break;
+            }
+            _ => {}
+        }
+    }
+    base_type_name(reste[..fin].trim())
 }
 
 /// `Self` désigne le type de l'`impl` qui contient le nœud.
