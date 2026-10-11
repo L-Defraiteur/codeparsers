@@ -552,8 +552,11 @@ fn empty_file_produces_no_crash() {
 }
 
 #[test]
-fn no_self_reference() {
-    // A function should not CONSUMES itself
+fn recursion_is_a_self_consumes() {
+    // **Une récursion est un appelant légitime, rendu comme tel** (décision
+    // du 11 octobre 2026, relayée par l'orchestration, après les retours du
+    // cœur sur acquireLocksBeforeExecution) : l'appel récursif fait une
+    // arête vers soi. Ce test disait l'inverse (« debatable ») depuis février.
     let rels = parse_rels(&[("rec.ts", r#"
 function factorial(n: number): number {
     if (n <= 1) return 1;
@@ -561,12 +564,10 @@ function factorial(n: number): number {
 }
 "#)]);
 
-    // factorial calls itself (recursion) — this is debatable but typically
-    // we don't produce a self-CONSUMES since from_uuid == to_uuid is filtered
     let self_refs: Vec<_> = rels.iter()
         .filter(|r| r.from == "factorial" && r.to == "factorial" && r.rel_type == RelationshipType::CONSUMES)
         .collect();
-    assert!(self_refs.is_empty(), "Function should not CONSUMES itself (recursion)");
+    assert_eq!(self_refs.len(), 1, "la récursion : une arête vers soi");
 }
 
 #[test]

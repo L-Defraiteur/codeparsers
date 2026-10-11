@@ -479,9 +479,12 @@ impl RelationshipResolver {
             let surcharge = son_propre_nom
                 .then(|| candidates.iter().find(|c| c.uuid != source_uuid && c.file == relative_path && c.parent == scope.parent))
                 .flatten();
-            if son_propre_nom && surcharge.is_none() {
+            // Sans surcharge, la récursion : une arête vers soi pour un appel.
+            let recursion = son_propre_nom && surcharge.is_none() && r.usage == Some(crate::scope_extraction::types::UsageKind::Call);
+            if son_propre_nom && surcharge.is_none() && !recursion {
                 continue;
             }
+            let surcharge = if recursion { candidates.iter().find(|c| c.uuid == source_uuid) } else { surcharge };
             let soeur = if sans_receveur {
                 scope.parent.as_deref().and_then(|classe| {
                     candidates.iter().find(|c| c.file == relative_path && c.r#type == "method" && c.parent.as_deref() == Some(classe))
@@ -496,8 +499,9 @@ impl RelationshipResolver {
 
             if let Some(target) = matched {
                 // Un scope ne se consomme pas lui-même (le nom d'un
-                // destructeur dans sa classe le faisait).
-                if target.uuid == source_uuid {
+                // destructeur dans sa classe le faisait) — sauf l'appel
+                // récursif.
+                if target.uuid == source_uuid && !recursion {
                     continue;
                 }
                 // Skip if target is a child of the source scope
@@ -628,10 +632,14 @@ impl RelationshipResolver {
                 .collect();
             if son_propre_nom {
                 // Son propre nom : une surcharge du même propriétaire (un vrai
-                // appel), sinon la récursion — jamais un homonyme d'ailleurs.
+                // appel), sinon la récursion — une arête vers soi, un appelant
+                // comme un autre ; jamais un homonyme d'ailleurs.
                 valid.retain(|c| c.parent == scope.parent);
                 if valid.is_empty() {
-                    continue;
+                    if r.usage != Some(crate::scope_extraction::types::UsageKind::Call) {
+                        continue;
+                    }
+                    valid = candidates.iter().filter(|c| c.uuid == source_uuid).collect();
                 }
             } else if sans_receveur {
                 if let Some(classe) = scope.parent.as_deref() {

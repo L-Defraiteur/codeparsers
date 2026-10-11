@@ -11,8 +11,9 @@ use codeparsers::relationship_resolution::types::{RelationshipResolverOptions, R
 use codeparsers::scope_extraction::usage::{template_call, TemplateCall};
 use std::collections::HashMap;
 
-/// Les CONSUMES (« fichier:nom » → « fichier:nom ») des fichiers donnés.
-fn consumes(fichiers: &[(&str, &str)], entre_fichiers: bool) -> Vec<(String, String)> {
+/// Les CONSUMES (« fichier:nom » → « fichier:nom », vers soi-même ?) des
+/// fichiers donnés.
+fn consumes(fichiers: &[(&str, &str)], entre_fichiers: bool) -> Vec<(String, String, bool)> {
     let mut contenus = HashMap::new();
     let mut chemins = Vec::new();
     for (nom, src) in fichiers {
@@ -33,7 +34,7 @@ fn consumes(fichiers: &[(&str, &str)], entre_fichiers: bool) -> Vec<(String, Str
         .unwrap_or_default()
         .into_iter()
         .filter(|r| r.r#type == RelationshipType::CONSUMES)
-        .map(|r| (format!("{}:{}", r.from_file, r.from_name), format!("{}:{}", r.to_file, r.to_name)))
+        .map(|r| (format!("{}:{}", r.from_file, r.from_name), format!("{}:{}", r.to_file, r.to_name), r.from_uuid == r.to_uuid))
         .collect()
 }
 
@@ -43,23 +44,24 @@ const OP_CPP: &str = "#include \"op.h\"\nvoid NodeBatchInsert::acquireLocks(Ctx*
 #[test]
 fn le_champ_d_un_ku_dynamic_cast_type_l_appel_et_la_recursion_ne_retombe_pas_sur_un_homonyme() {
     let rels = consumes(&[("op.h", OP_H), ("op.cpp", OP_CPP)], true);
-    let depuis: Vec<&(String, String)> = rels.iter().filter(|(de, _)| de == "op.cpp:acquireLocks").collect();
-    assert!(depuis.iter().any(|(_, vers)| vers == "op.h:acquireLocks"), "vers PhysicalOperator::acquireLocks (op.h) : {rels:?}");
-    assert!(!depuis.iter().any(|(_, vers)| vers == "op.cpp:acquireLocks"), "la récursion n'est pas NodeBatchInsert::acquireLocks : {rels:?}");
+    let depuis: Vec<&(String, String, bool)> = rels.iter().filter(|(de, _, _)| de == "op.cpp:acquireLocks").collect();
+    assert!(depuis.iter().any(|(_, vers, _)| vers == "op.h:acquireLocks"), "vers PhysicalOperator::acquireLocks (op.h) : {rels:?}");
+    assert!(depuis.iter().any(|(_, vers, soi)| vers == "op.cpp:acquireLocks" && *soi), "la récursion, vers soi : {rels:?}");
+    assert!(!depuis.iter().any(|(_, vers, soi)| vers == "op.cpp:acquireLocks" && !*soi), "jamais NodeBatchInsert::acquireLocks : {rels:?}");
 }
 
 #[test]
 fn une_methode_gabarit_constcast_type_son_resultat() {
     let src = "struct State {\n    template<typename T>\n    const T& constCast() const { return *static_cast<const T*>(this); }\n};\nstruct NodeState : State { int columnID; void touch() const {} };\nvoid update(State& s) {\n    s.constCast<NodeState>().touch();\n}\n";
     let rels = consumes(&[("s.cpp", src)], false);
-    assert!(rels.iter().any(|(de, vers)| de == "s.cpp:update" && vers == "s.cpp:touch"), "update → NodeState::touch : {rels:?}");
+    assert!(rels.iter().any(|(de, vers, _)| de == "s.cpp:update" && vers == "s.cpp:touch"), "update → NodeState::touch : {rels:?}");
 }
 
 #[test]
 fn un_cast_du_langage_type_son_resultat() {
     let src = "struct Op { void run() {} };\nstruct Autre { void run() {} };\nvoid f(void* p) {\n    static_cast<Op*>(p)->run();\n}\n";
     let rels = consumes(&[("c.cpp", src)], false);
-    let vers: Vec<&String> = rels.iter().filter(|(de, _)| de == "c.cpp:f").map(|(_, v)| v).collect();
+    let vers: Vec<&String> = rels.iter().filter(|(de, _, _)| de == "c.cpp:f").map(|(_, v, _)| v).collect();
     assert_eq!(vers.len(), 1, "un seul run, celui de Op : {rels:?}");
 }
 
@@ -67,7 +69,7 @@ fn un_cast_du_langage_type_son_resultat() {
 fn un_appel_sans_receveur_vise_une_methode_soeur_avant_un_homonyme() {
     let src = "struct A { void aide(); void run(); };\nstruct B { void aide(); };\nvoid B::aide() {}\nvoid A::aide() {}\nvoid A::run() {\n    aide();\n}\n";
     let rels = consumes(&[("a.cpp", src)], false);
-    let vers: Vec<&String> = rels.iter().filter(|(de, _)| de == "a.cpp:run").map(|(_, v)| v).collect();
+    let vers: Vec<&String> = rels.iter().filter(|(de, _, _)| de == "a.cpp:run").map(|(_, v, _)| v).collect();
     assert_eq!(vers.len(), 1, "{rels:?}");
 }
 
@@ -95,7 +97,8 @@ fn une_surcharge_de_son_propre_nom_est_un_appel_et_la_recursion_seule_n_en_fait_
     // `f(a)` dans `f(int, int)` appelle l'autre surcharge : une vraie arête.
     let src = "struct S {\n    void f(int a);\n    void f(int a, int b);\n};\nvoid S::f(int a) {}\nvoid S::f(int a, int b) {\n    f(a);\n}\nstruct T { void g(); };\nstruct U { void g(); };\nvoid U::g() {}\nvoid T::g() {\n    g();\n}\n";
     let rels = consumes(&[("s.cpp", src)], false);
-    assert!(rels.iter().any(|(de, vers)| de == "s.cpp:f" && vers == "s.cpp:f"), "la surcharge : {rels:?}");
-    // `g()` dans `T::g` : la récursion, pas `U::g`.
-    assert!(!rels.iter().any(|(de, vers)| de == "s.cpp:g" && vers == "s.cpp:g"), "pas d'homonyme d'une autre classe : {rels:?}");
+    assert!(rels.iter().any(|(de, vers, soi)| de == "s.cpp:f" && vers == "s.cpp:f" && !*soi), "la surcharge : {rels:?}");
+    // `g()` dans `T::g` : la récursion (vers soi), pas `U::g`.
+    assert!(rels.iter().any(|(de, vers, soi)| de == "s.cpp:g" && vers == "s.cpp:g" && *soi), "la récursion : {rels:?}");
+    assert!(!rels.iter().any(|(de, vers, soi)| de == "s.cpp:g" && vers == "s.cpp:g" && !*soi), "pas d'homonyme d'une autre classe : {rels:?}");
 }
