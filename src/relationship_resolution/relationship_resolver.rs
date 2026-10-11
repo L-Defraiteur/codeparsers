@@ -450,9 +450,23 @@ impl RelationshipResolver {
             if type_lu.is_none() && r.untyped_receiver && r.qualifier_deferred.is_none() {
                 continue;
             }
-            let matched = candidates.iter().find(|c| {
+            // Un nom nu qui désigne une fermeture locale (`let local = |s| …;
+            // local(x)`) : celle du scope lui-même est un appel interne (pas
+            // de lien), celle du scope parent (une fermeture qui en appelle
+            // une autre) est la cible — jamais un homonyme du fichier.
+            let fermeture = r.qualifier.is_none().then(|| {
+                candidates.iter().find(|c| {
+                    c.file == relative_path
+                        && c.r#type == "lambda"
+                        && (c.parent.as_deref() == Some(scope.name.as_str()) || (scope.parent.is_some() && c.parent == scope.parent))
+                })
+            }).flatten();
+            if fermeture.is_some_and(|c| c.parent.as_deref() == Some(scope.name.as_str())) {
+                continue;
+            }
+            let matched = fermeture.or_else(|| candidates.iter().find(|c| {
                 c.file == relative_path && type_lu.as_deref().is_none_or(|t| c.parent.as_deref() == Some(t))
-            });
+            }));
 
             if let Some(target) = matched {
                 // Un scope ne se consomme pas lui-même (le nom d'un
@@ -484,7 +498,7 @@ impl RelationshipResolver {
                     metadata: Some(RelationshipMetadata {
                         context: r.context.clone(),
                         via_import: Some(false),
-                        sites: vec![site_of(r)],
+                        sites: vec![site_vers(r, &target.r#type)],
                         by_name,
                         ..Default::default()
                     }),
@@ -614,7 +628,7 @@ impl RelationshipResolver {
                 if seen_targets.contains(&target.uuid) {
                     if let Some(&i) = relation_of_target.get(&target.uuid) {
                         if let Some(m) = relationships[i].metadata.as_mut() {
-                            let s = site_of(r);
+                            let s = site_vers(r, &target.r#type);
                             if !m.sites.contains(&s) {
                                 m.sites.push(s);
                             }
@@ -650,7 +664,7 @@ impl RelationshipResolver {
                         via_import: Some(false),
                         fallback_resolution: if is_cross_file { Some(true) } else { None },
                         by_name: (typed.is_none() && receveur_variable(r)).then_some(true),
-                        sites: vec![site_of(r)],
+                        sites: vec![site_vers(r, &target.r#type)],
                         ..Default::default()
                     }),
                 });
@@ -1441,6 +1455,19 @@ pub fn detect_relationship_type_by_name(
 /// Le site d'une référence : son genre (lu à l'extraction) et sa ligne.
 fn site_of(r: &IdentifierReference) -> UsageSite {
     UsageSite { usage: r.usage.clone().unwrap_or(UsageKind::Other), line: Some(r.line) }
+}
+
+/// [`site_of`], sachant la cible : **un nom nu relevé « other » qui désigne
+/// une fonction est un appel** — une fonction passée en argument
+/// (`map(aide)`), un pointeur de fonction (T5, 11 octobre 2026). L'AST ne
+/// le sait pas (un nom en argument peut être une variable) ; le résolveur,
+/// qui sait ce que le nom désigne, le dit.
+fn site_vers(r: &IdentifierReference, cible: &str) -> UsageSite {
+    let mut site = site_of(r);
+    if site.usage == UsageKind::Other && r.qualifier.is_none() && matches!(cible, "function" | "method") {
+        site.usage = UsageKind::Call;
+    }
+    site
 }
 
 /// Le type de la relation qu'une référence fait vers sa cible.

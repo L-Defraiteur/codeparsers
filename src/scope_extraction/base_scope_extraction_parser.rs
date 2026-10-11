@@ -2263,6 +2263,28 @@ impl BaseScopeExtractionParser {
         for nom in types.keys().chain(retours.keys()).chain(pleins.names()).chain(liees.keys()) {
             exclude.insert(typed_binding(nom));
         }
+        // Rust : une locale liée à une fermeture (`let double = |x| …;`) a
+        // son scope ; l'appeler (`double(x)`) est une référence à lui, pas
+        // un nom caché par une locale (T5, 11 octobre 2026).
+        if matches!(self.language, SupportedLanguage::Rust) {
+            // La liaison est dans la fonction qui contient ce scope — elle-même,
+            // ou celle qui englobe une fermeture qui en appelle une autre. Un
+            // scope hors de toute fonction (une classe, un bloc impl) ne lève
+            // rien : ses méthodes ont chacune leurs locales.
+            let mut fonction = Some(node);
+            while let Some(n) = fonction {
+                if n.kind() == "function_item" {
+                    break;
+                }
+                fonction = n.parent();
+            }
+            if let Some(f) = fonction {
+                for nom in crate::scope_extraction::usage::closure_bindings(f, content) {
+                    exclude.remove(&local_binding(&nom));
+                    exclude.remove(&nom);
+                }
+            }
+        }
         self.extract_identifier_references_visit(node, content, &exclude, &mut references);
         // C++ : les gardes de verrou RAII. Un mutex local (déclaré dans la
         // fonction, donc lié et typé) n'est pas un champ.
@@ -3062,6 +3084,14 @@ impl BaseScopeExtractionParser {
             context: String,
         }
 
+        // Les fermetures du fichier : un appel à l'une d'elles n'est pas une
+        // référence de type, il ne remonte pas à la classe.
+        let fermetures: std::collections::HashSet<String> = scopes
+            .iter()
+            .filter(|s| s.r#type == ScopeInfoType::Lambda)
+            .map(|s| format!("{}::{}:{}-{}", s.file_path, s.name, s.scope_start_line, s.scope_end_line))
+            .collect();
+
         // Find class scope indices
         let class_indices: Vec<usize> = scopes.iter().enumerate()
             .filter(|(_, s)| s.r#type == ScopeInfoType::Class)
@@ -3080,7 +3110,7 @@ impl BaseScopeExtractionParser {
                         // Un appel sur un receveur non typé n'est pas une
                         // référence de type : il ne remonte pas à la classe.
                         if r.kind == Some(IdentifierReferenceKind::LocalScope) && !r.untyped_receiver {
-                            if let Some(ref ts) = r.target_scope {
+                            if let Some(ts) = r.target_scope.as_ref().filter(|ts| !fermetures.contains(ts.as_str())) {
                                 type_references.entry(r.identifier.clone()).or_insert(TypeRefInfo {
                                     target_scope: ts.clone(),
                                     line: scope.scope_start_line,

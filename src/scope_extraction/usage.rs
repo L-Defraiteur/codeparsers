@@ -490,6 +490,25 @@ fn element_cpp(droite: Node, boucle: Node, content: &str) -> Option<String> {
     base_type_name(reste[..fin].trim())
 }
 
+/// **Les noms liés à une fermeture** sous `noeud` : `let double = |x| …;`
+/// (Rust) — la fermeture a son propre scope, nommé d'après la liaison.
+pub fn closure_bindings(noeud: Node, content: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    fn visiter(n: Node, content: &str, out: &mut Vec<String>) {
+        if n.kind() == "let_declaration" && n.child_by_field_name("value").is_some_and(|v| v.kind() == "closure_expression") {
+            if let Some(nom) = n.child_by_field_name("pattern").and_then(|p| simple_name(p, content)) {
+                out.push(nom);
+            }
+        }
+        let mut c = n.walk();
+        for e in n.named_children(&mut c) {
+            visiter(e, content, out);
+        }
+    }
+    visiter(noeud, content, &mut out);
+    out
+}
+
 /// `Self` désigne le type de l'`impl` qui contient le nœud.
 fn enclosing_impl_type(n: Node, content: &str) -> Option<String> {
     let mut a = n.parent();
