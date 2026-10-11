@@ -115,6 +115,8 @@ pub struct RelationshipResolver {
     field_types_local: HashMap<(String, String, String), Option<String>>,
     /// uuid d'une fonction → (type de retour tel qu'écrit, parent).
     return_types: HashMap<String, (String, Option<String>)>,
+    /// uuid d'une fonction gabarit → les noms de ses paramètres, dans l'ordre.
+    template_params: HashMap<String, Vec<String>>,
 }
 
 impl RelationshipResolver {
@@ -130,6 +132,7 @@ impl RelationshipResolver {
             field_types: HashMap::new(),
             field_types_local: HashMap::new(),
             return_types: HashMap::new(),
+            template_params: HashMap::new(),
         }
     }
 
@@ -359,6 +362,7 @@ impl RelationshipResolver {
         self.field_types.clear();
         self.field_types_local.clear();
         self.return_types.clear();
+        self.template_params.clear();
 
         for (file_path, analysis) in parsed_files {
             let relative_path = self.get_relative_path(file_path);
@@ -397,6 +401,9 @@ impl RelationshipResolver {
                 }
                 if let Some(rt) = scope.return_type.as_ref().filter(|t| !t.trim().is_empty()) {
                     self.return_types.insert(uuid.clone(), (rt.clone(), scope.parent.clone()));
+                }
+                if let Some(g) = scope.generic_parameters.as_ref().filter(|g| !g.is_empty()) {
+                    self.template_params.insert(uuid.clone(), g.iter().map(|p| p.name.clone()).collect());
                 }
 
                 // Add to UUID mapping
@@ -464,7 +471,26 @@ impl RelationshipResolver {
             if fermeture.is_some_and(|c| c.parent.as_deref() == Some(scope.name.as_str())) {
                 continue;
             }
-            let matched = fermeture.or_else(|| candidates.iter().find(|c| {
+            // Un appel sans receveur vise d'abord sa propre classe (voir la
+            // résolution entre fichiers) : lui-même — la récursion, sans arête —
+            // ou une méthode sœur, avant le premier homonyme du fichier.
+            let sans_receveur = r.qualifier.is_none() && type_lu.is_none();
+            let son_propre_nom = sans_receveur && fermeture.is_none() && candidates.iter().any(|c| c.uuid == source_uuid);
+            let surcharge = son_propre_nom
+                .then(|| candidates.iter().find(|c| c.uuid != source_uuid && c.file == relative_path && c.parent == scope.parent))
+                .flatten();
+            if son_propre_nom && surcharge.is_none() {
+                continue;
+            }
+            let soeur = if sans_receveur {
+                scope.parent.as_deref().and_then(|classe| {
+                    candidates.iter().find(|c| c.file == relative_path && c.r#type == "method" && c.parent.as_deref() == Some(classe))
+                })
+            } else {
+                None
+            };
+            let soeur = surcharge.or(soeur);
+            let matched = fermeture.or(soeur).or_else(|| candidates.iter().find(|c| {
                 c.file == relative_path && type_lu.as_deref().is_none_or(|t| c.parent.as_deref() == Some(t))
             }));
 
@@ -588,10 +614,32 @@ impl RelationshipResolver {
             }
             let typed = typed_owned.as_deref();
 
+            // **Un appel sans receveur vise d'abord sa propre classe** (`this`
+            // implicite ; en C++, un membre cache un nom global) : le scope
+            // lui-même — la récursion, qui ne fait pas d'arête ici, et ne doit
+            // pas retomber sur un homonyme du fichier (`acquireLocks(child)`
+            // reliait `QueryProcessor::acquireLocks` à
+            // `NodeBatchInsert::acquireLocks`) — ou une méthode sœur.
+            let sans_receveur = r.qualifier.is_none() && typed_owned.is_none();
+            let son_propre_nom = sans_receveur && candidates.iter().any(|c| c.uuid == source_uuid);
             // Don't reference ourselves
             let mut valid: Vec<&ScopeMappingEntry> = candidates.iter()
                 .filter(|c| c.uuid != source_uuid && (self.cross_file() || c.file == relative_path))
                 .collect();
+            if son_propre_nom {
+                // Son propre nom : une surcharge du même propriétaire (un vrai
+                // appel), sinon la récursion — jamais un homonyme d'ailleurs.
+                valid.retain(|c| c.parent == scope.parent);
+                if valid.is_empty() {
+                    continue;
+                }
+            } else if sans_receveur {
+                if let Some(classe) = scope.parent.as_deref() {
+                    if valid.iter().any(|c| c.parent.as_deref() == Some(classe) && c.r#type == "method") {
+                        valid.retain(|c| c.parent.as_deref() == Some(classe) && c.r#type == "method");
+                    }
+                }
+            }
             if let Some(t) = typed {
                 valid.retain(|c| c.parent.as_deref() == Some(t));
                 // Plusieurs types de ce nom, tous ailleurs : on ne devine pas.
@@ -1045,12 +1093,23 @@ impl RelationshipResolver {
             return Some(t.clone());
         }
         let differe = r.qualifier_deferred.as_ref()?;
-        // Une chaîne à peler demande le type écrit en entier, que ces tables
-        // ne gardent pas : elle ne se lit que dans le fichier.
-        if !differe.peel().is_empty() {
+        // Une chaîne de méthodes à peler demande le type écrit en entier, que
+        // ces tables ne gardent pas : elle ne se lit que dans le fichier. Des
+        // champs (`.f`), si : la table des champs les suit.
+        if differe.peel().iter().any(|p| !p.starts_with('.')) {
             return None;
         }
-        match differe {
+        let champs: Vec<&str> = differe.peel().iter().map(|p| &p[1..]).collect();
+        let suivre = |t: String, fichier: &str| -> Option<String> {
+            champs.iter().try_fold(t, |t, f| {
+                if self.cross_file() {
+                    self.field_types.get(&(t, f.to_string())).cloned().flatten()
+                } else {
+                    self.field_types_local.get(&(fichier.to_string(), t, f.to_string())).cloned().flatten()
+                }
+            })
+        };
+        let base = match differe {
             DeferredType::FieldOf { owner, field, .. } => {
                 // « Fichier seul » : le champ doit être déclaré dans ce
                 // fichier — sa déclaration ailleurs dépend du paquet.
@@ -1074,7 +1133,26 @@ impl RelationshipResolver {
                 let t = crate::scope_extraction::usage::base_type_name(&ecrit)?;
                 if t == "Self" { parent.clone() } else { Some(t) }
             }
-        }
+            DeferredType::TemplateReturnOf { owner, function, args, .. } => {
+                // Toutes les définitions de ce nom (les surcharges de
+                // `ku_dynamic_cast`) doivent rendre le même type.
+                let mut lus = self
+                    .scope_mapping
+                    .get(function)?
+                    .iter()
+                    .filter(|c| c.r#type == "function" || c.r#type == "method")
+                    .filter(|c| owner.is_none() || c.parent == *owner)
+                    .filter(|c| self.cross_file() || c.file == relative_path)
+                    .map(|c| {
+                        let (ecrit, _) = self.return_types.get(&c.uuid)?;
+                        let params = self.template_params.get(&c.uuid)?;
+                        crate::scope_extraction::usage::base_type_name(&crate::scope_extraction::usage::substitute_template(ecrit, params, args))
+                    });
+                let premier = lus.next()??;
+                lus.all(|t| t.as_deref() == Some(premier.as_str())).then_some(premier)
+            }
+        }?;
+        suivre(base, relative_path)
     }
 
     /// Generate deterministic UUID for a file.

@@ -462,6 +462,9 @@ impl CppScopeExtractionParser {
                     if let Some(child) = methode {
                         let mut method_scope = self.extract_cpp_method(child, content, depth + 1, Some(scope_name.clone()), file_imports);
                         method_scope.file_path = file_path.to_string();
+                        if membre.kind() == "template_declaration" {
+                            method_scope.generic_parameters = Some(self.extract_template_parameters(membre, content));
+                        }
                         let method_name = method_scope.name.clone();
                         scopes.push(method_scope);
 

@@ -283,6 +283,9 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
     use std::collections::HashMap;
     let mut champs: HashMap<(String, String), Option<String>> = HashMap::new();
     let mut retours: HashMap<String, Option<(String, Option<String>)>> = HashMap::new();
+    // Les fonctions gabarits : nom → (retour écrit, paramètres, parent), une
+    // entrée par définition (les surcharges de `ku_dynamic_cast`).
+    let mut gabarits: HashMap<String, Vec<(String, Vec<String>, Option<String>)>> = HashMap::new();
     for s in &analysis.scopes {
         for m in s.members.iter().flatten() {
             if m.member_type != ClassMemberInfoMemberType::Property {
@@ -304,10 +307,13 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
             if let Some(rt) = s.return_type.as_ref().filter(|t| !t.trim().is_empty()) {
                 let v = (rt.clone(), s.parent.clone());
                 retours.entry(s.name.clone()).and_modify(|o| *o = None).or_insert(Some(v));
+                if let Some(g) = s.generic_parameters.as_ref().filter(|g| !g.is_empty()) {
+                    gabarits.entry(s.name.clone()).or_default().push((rt.clone(), g.iter().map(|p| p.name.clone()).collect(), s.parent.clone()));
+                }
             }
         }
     }
-    if champs.is_empty() && retours.is_empty() {
+    if champs.is_empty() && retours.is_empty() && gabarits.is_empty() {
         return;
     }
     for s in &mut analysis.scopes {
@@ -336,6 +342,19 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
                     let t = nom_du_type(&ecrit, peel)?;
                     if t == "Self" { parent } else { Some(t) }
                 }),
+                Some(DeferredType::TemplateReturnOf { owner, function, args, peel }) => {
+                    // Toutes les définitions retenues doivent rendre le même type.
+                    let mut lus = gabarits
+                        .get(function)
+                        .into_iter()
+                        .flatten()
+                        .filter(|(_, _, parent)| owner.is_none() || parent == owner)
+                        .map(|(ecrit, params, _)| nom_du_type(&crate::scope_extraction::usage::substitute_template(ecrit, params, args), peel));
+                    match lus.next() {
+                        Some(Some(premier)) if lus.all(|t| t.as_deref() == Some(premier.as_str())) => Some(premier),
+                        _ => None,
+                    }
+                }
                 None => None,
             };
             if lu.is_some() {

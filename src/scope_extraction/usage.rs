@@ -817,6 +817,23 @@ fn racine_differee(
     use super::types::DeferredType;
     let ident = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_');
     let q = q.trim();
+    // **Un appel de gabarit à arguments explicites**, suivi de champs :
+    // `ku_dynamic_cast<ProcessorTask*>(t)->sink`, `s.constCast<NodeState>()`.
+    if let Some(appel) = template_call(q) {
+        let pas: Vec<String> = appel.fields.iter().map(|f| format!(".{f}")).collect();
+        if appel.receiver.is_none() && BUILTIN_CASTS.contains(&appel.function.as_str()) {
+            // Un cast du langage : le type est l'argument, rien à lire ailleurs.
+            let t = base_type_name(appel.args.first()?)?;
+            let (premier, reste) = pas.split_first()?;
+            return Some(DeferredType::FieldOf { owner: t, field: premier[1..].to_string(), peel: reste.to_vec() });
+        }
+        let owner = match appel.receiver.as_deref() {
+            None => None,
+            Some("this" | "self") => Some(englobant?.to_string()),
+            Some(r) => Some(types.get(r)?.clone()),
+        };
+        return Some(DeferredType::TemplateReturnOf { owner, function: appel.function, args: appel.args, peel: pas });
+    }
     // **Une chaîne de champs** (`a.b`, `this->a.b`, `self.a.b`, un membre
     // implicite C++ `a.b`) : le premier champ dit le propriétaire, les
     // suivants deviennent des pas de champ (`.b`) que le lecteur suivra dans
@@ -866,6 +883,151 @@ fn racine_differee(
     let nom = &corps[..ouverture];
     (ident(nom) && corps.ends_with(')') && !nom.starts_with(|c: char| c.is_uppercase()))
         .then(|| DeferredType::ReturnOf { function: nom.to_string(), unwrap: deballe, peel: Vec::new() })
+}
+
+/// Les casts du langage : le type est l'argument du gabarit.
+pub const BUILTIN_CASTS: &[&str] = &["static_cast", "dynamic_cast", "reinterpret_cast", "const_cast"];
+
+/// Un appel de gabarit à arguments explicites, lu sur le texte d'un
+/// qualificatif C++ : `ns::f<A, B>(…)`, `x.m<A>()`, `x->m<A>()`, puis des
+/// champs (`->sink`, `.x`) ; un appel après eux n'est pas lu.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TemplateCall {
+    pub receiver: Option<String>,
+    pub function: String,
+    pub args: Vec<String>,
+    pub fields: Vec<String>,
+}
+
+/// Lit `q` comme [`TemplateCall`], ou `None`.
+pub fn template_call(q: &str) -> Option<TemplateCall> {
+    let q = q.trim();
+    let ident_len = |s: &str| -> usize { s.chars().take_while(|c| c.is_alphanumeric() || *c == '_').map(char::len_utf8).sum() };
+    // L'appelé : `a::b::f`, ou `x.f` / `x->f` (un receveur simple).
+    let mut i = 0;
+    let mut receiver = None;
+    let mut segments: Vec<&str> = Vec::new();
+    loop {
+        let n = ident_len(&q[i..]);
+        if n == 0 {
+            return None;
+        }
+        segments.push(&q[i..i + n]);
+        i += n;
+        let r = &q[i..];
+        if r.starts_with("::") {
+            i += 2;
+        } else if receiver.is_none() && segments.len() == 1 && (r.starts_with('.') || r.starts_with("->")) {
+            receiver = Some(segments.pop()?.to_string());
+            i += if r.starts_with('.') { 1 } else { 2 };
+        } else {
+            break;
+        }
+    }
+    let function = segments.last()?.to_string();
+    let r = &q[i..];
+    if !r.starts_with('<') {
+        return None;
+    }
+    // Les arguments, entre chevrons équilibrés, séparés au premier niveau.
+    let mut prof = 0i32;
+    let mut fin = None;
+    let mut args = Vec::new();
+    let mut debut = 1;
+    for (k, c) in r.char_indices() {
+        match c {
+            '<' | '(' | '[' => prof += 1,
+            '>' | ')' | ']' => {
+                prof -= 1;
+                if prof == 0 {
+                    args.push(r[debut..k].trim().to_string());
+                    fin = Some(k);
+                    break;
+                }
+            }
+            ',' if prof == 1 => {
+                args.push(r[debut..k].trim().to_string());
+                debut = k + 1;
+            }
+            _ => {}
+        }
+    }
+    let fin = fin?;
+    if args.iter().any(|a| a.is_empty()) {
+        return None;
+    }
+    let r = r[fin + 1..].trim_start();
+    // L'appel lui-même.
+    if !r.starts_with('(') {
+        return None;
+    }
+    let mut prof = 0i32;
+    let mut fin = None;
+    for (k, c) in r.char_indices() {
+        match c {
+            '(' | '[' | '{' => prof += 1,
+            ')' | ']' | '}' => {
+                prof -= 1;
+                if prof == 0 {
+                    fin = Some(k);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut r = r[fin? + 1..].trim_start();
+    // Des champs, jusqu'au bout.
+    let mut fields = Vec::new();
+    while !r.is_empty() {
+        let apres = r.strip_prefix("->").or_else(|| r.strip_prefix('.'))?.trim_start();
+        let n = ident_len(apres);
+        if n == 0 {
+            return None;
+        }
+        fields.push(apres[..n].to_string());
+        r = apres[n..].trim_start();
+        if r.starts_with('(') || r.starts_with('<') {
+            return None;
+        }
+    }
+    Some(TemplateCall { receiver, function, args, fields })
+}
+
+/// Le type de retour `ecrit` d'un gabarit de paramètres `params`, chaque
+/// paramètre remplacé (mot entier) par l'argument de même rang.
+pub fn substitute_template(ecrit: &str, params: &[String], args: &[String]) -> String {
+    let mut out = String::new();
+    let mut mot = String::new();
+    let vider = |mot: &mut String, out: &mut String| {
+        if !mot.is_empty() {
+            match params.iter().position(|p| p == mot.as_str()).and_then(|i| args.get(i)) {
+                Some(a) => out.push_str(a),
+                None => out.push_str(mot),
+            }
+            mot.clear();
+        }
+    };
+    for c in ecrit.chars() {
+        if c.is_alphanumeric() || c == '_' {
+            mot.push(c);
+        } else {
+            vider(&mut mot, &mut out);
+            out.push(c);
+        }
+    }
+    vider(&mut mot, &mut out);
+    out
+}
+
+/// Le type d'un qualificatif qui est un cast du langage sans champ après :
+/// `static_cast<Foo*>(x)` → `Foo`.
+pub fn builtin_cast_type(q: &str) -> Option<String> {
+    let appel = template_call(q)?;
+    if appel.receiver.is_some() || !appel.fields.is_empty() || !BUILTIN_CASTS.contains(&appel.function.as_str()) {
+        return None;
+    }
+    base_type_name(appel.args.first()?)
 }
 
 /// **Les champs typés d'une classe Python** : `x: T` dans le corps de la

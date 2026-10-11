@@ -158,20 +158,33 @@ pub enum DeferredType {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         peel: Vec<String>,
     },
+    /// Le type de retour déclaré d'un **gabarit appelé avec des arguments
+    /// explicites**, chaque paramètre du gabarit remplacé par l'argument de
+    /// même rang : `ku_dynamic_cast<ProcessorTask*>(t)` (retour `TO`, `TO` →
+    /// `ProcessorTask*`), `state.constCast<NodeState>()` (retour `const T&`).
+    /// `owner` : le type du receveur, pour une méthode gabarit.
+    TemplateReturnOf {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        owner: Option<String>,
+        function: String,
+        args: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        peel: Vec<String>,
+    },
 }
 
 impl DeferredType {
     /// La même lecture, suivie de ces méthodes.
     pub fn with_peel(mut self, suite: Vec<String>) -> Self {
         match &mut self {
-            DeferredType::FieldOf { peel, .. } | DeferredType::ReturnOf { peel, .. } => peel.extend(suite),
+            DeferredType::FieldOf { peel, .. } | DeferredType::ReturnOf { peel, .. } | DeferredType::TemplateReturnOf { peel, .. } => peel.extend(suite),
         }
         self
     }
 
     pub fn peel(&self) -> &[String] {
         match self {
-            DeferredType::FieldOf { peel, .. } | DeferredType::ReturnOf { peel, .. } => peel,
+            DeferredType::FieldOf { peel, .. } | DeferredType::ReturnOf { peel, .. } | DeferredType::TemplateReturnOf { peel, .. } => peel,
         }
     }
 }

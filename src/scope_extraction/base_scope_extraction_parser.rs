@@ -2351,6 +2351,10 @@ impl BaseScopeExtractionParser {
                 // Un appel par chemin sur un type (`Catalog::Get(…)`) : le
                 // type est le receveur.
                 r.qualifier_type = Some(t);
+            } else if let Some(t) = r.qualifier.as_deref().and_then(crate::scope_extraction::usage::builtin_cast_type) {
+                // Un cast du langage (`static_cast<Foo*>(x)->f()`) : le type
+                // est l'argument du gabarit.
+                r.qualifier_type = Some(t);
             } else if let Some(q) = r.qualifier.as_deref() {
                 r.qualifier_deferred =
                     crate::scope_extraction::usage::deferred_with_bindings(q, &types, &retours, &liees, englobant.as_deref(), champ_implicite);
@@ -4672,13 +4676,23 @@ pub fn declaring_positions(noeud: SyntaxNode) -> HashSet<(usize, usize)> {
     let mut out = HashSet::new();
     let declarant = match noeud.kind() {
         "impl_item" => noeud.child_by_field_name("type"),
+        // Un gabarit C++ : ce qu'il enveloppe.
+        "template_declaration" => {
+            let mut c = noeud.walk();
+            let dedans = noeud.named_children(&mut c).find(|x| x.kind() != "template_parameter_list");
+            return dedans.map(declaring_positions).unwrap_or_default();
+        }
         "function_definition" | "declaration" | "field_declaration" if noeud.child_by_field_name("declarator").is_some() => {
             // C, C++ : le nom est au bout de la chaîne des déclarateurs.
             let mut d = noeud.child_by_field_name("declarator");
             while let Some(x) = d {
                 match x.kind() {
+                    // `reference_declarator` (`const T& f()`) n'a pas de champ
+                    // `declarator` : son dernier enfant nommé l'est.
                     "function_declarator" | "pointer_declarator" | "reference_declarator" | "init_declarator" | "array_declarator"
-                    | "parenthesized_declarator" | "attributed_declarator" => d = x.child_by_field_name("declarator"),
+                    | "parenthesized_declarator" | "attributed_declarator" => {
+                        d = x.child_by_field_name("declarator").or_else(|| x.named_child(x.named_child_count().checked_sub(1)?))
+                    }
                     _ => break,
                 }
             }
