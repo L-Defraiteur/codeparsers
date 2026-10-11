@@ -108,7 +108,7 @@ fn pct(a: usize, b: usize) -> String {
 fn sens(cle: &str) -> i32 {
     if cle.ends_with(".relies_pct") || cle.contains(".appelants.") || cle.starts_with("verrous.") {
         1
-    } else if cle.ends_with(".erreur_pct") || cle.contains(".non_resolues") {
+    } else if cle.ends_with(".erreur_pct") || cle.contains(".non_resolues") || cle.ends_with(".internes_manquees") {
         -1
     } else {
         0
@@ -364,6 +364,7 @@ fn main() {
         // Les références relevées, une par (fichier, scope, nom), par genre d'usage.
         let mut refs: HashMap<(String, String, String), String> = HashMap::new();
         let mut qualifs: HashMap<(String, String, String), Option<String>> = HashMap::new();
+        let mut types_lus: HashMap<(String, String, String), Option<String>> = HashMap::new();
         for s in &scopes {
             for x in &s.identifier_references {
                 // Un builtin est compris sans relation ; un nom du fichier
@@ -374,6 +375,7 @@ fn main() {
                 let usage = x.usage.as_ref().map_or_else(|| "other".to_string(), |u| format!("{u:?}").to_lowercase());
                 let f = s.file_path.strip_prefix(&racine_commune).unwrap_or(&s.file_path).trim_start_matches('/').to_string();
                 qualifs.entry((f.clone(), s.name.clone(), x.identifier.clone())).or_insert_with(|| x.qualifier.clone());
+                types_lus.entry((f.clone(), s.name.clone(), x.identifier.clone())).or_insert_with(|| x.qualifier_type.clone());
                 refs.entry((f, s.name.clone(), x.identifier.clone())).or_insert(usage);
             }
         }
@@ -406,6 +408,31 @@ fn main() {
             }
         }
         m.insert(format!("{mode}.non_resolues"), rel.unresolved_references.len().to_string());
+        // **Les absents, partagés** (question de Lucie, 11 octobre 2026) :
+        // externe — aucun scope de ce nom, ou un receveur d'un type qui n'est
+        // pas du projet, ou une méthode standard sur un receveur sans type lu ;
+        // interne manquée — le reste : une cible de ce nom existe, et rien ne
+        // dit que l'appel va ailleurs. Seule la seconde mesure la couverture.
+        let types_du_projet: HashSet<&str> = scopes
+            .iter()
+            .filter(|s| matches!(format!("{:?}", s.r#type).as_str(), "Class" | "Interface" | "Enum" | "Struct" | "Trait" | "TypeAlias"))
+            .map(|s| s.name.as_str())
+            .collect();
+        let (mut externes, mut internes) = (0usize, 0usize);
+        for u in &rel.unresolved_references {
+            let cle = (u.from_file.trim_start_matches('/').to_string(), u.from_scope.clone(), u.identifier.clone());
+            let externe = if u.reason.starts_with("aucun scope") {
+                true
+            } else {
+                match types_lus.get(&cle).cloned().flatten() {
+                    Some(t) => !types_du_projet.contains(t.as_str()),
+                    None => codeparsers::scope_extraction::standard::is_standard_method(&u.from_file, &u.identifier),
+                }
+            };
+            if externe { externes += 1 } else { internes += 1 }
+        }
+        m.insert(format!("{mode}.absents.externes"), externes.to_string());
+        m.insert(format!("{mode}.absents.internes_manquees"), internes.to_string());
         // Les relations d'appel, et celles posées par le nom seul (receveur
         // non typé) — neutre : elle se relit. Lue par sérialisation, pour se
         // compiler aussi contre un codeparsers d'avant (banc/comparer.sh).
