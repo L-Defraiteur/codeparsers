@@ -295,6 +295,18 @@ impl RustScopeExtractionParser {
             return;
         }
 
+        // **Une macro `macro_rules!` est un scope** : nommée d'après elle,
+        // ses références lues dans le corps de ses règles. Sans elle, le
+        // site d'expansion (`disons!(41)`) n'avait pas de cible et le corps
+        // se lisait dans le scope du fichier (T4, 11 octobre 2026).
+        if node.kind() == "macro_definition" {
+            if let Some(mut scope) = self.extract_rust_macro(node, content, depth, parent, file_imports) {
+                scope.file_path = file_path.to_string();
+                scopes.push(scope);
+            }
+            return;
+        }
+
         // Handle closure expressions
         if node.kind() == "closure_expression" {
             let mut scope = self.extract_rust_closure(node, content, depth, parent, file_imports);
@@ -1030,6 +1042,75 @@ impl RustScopeExtractionParser {
             decorators: None,
             value: None,
         }
+    }
+
+    /// Le scope d'une macro `macro_rules!` : un `Function` au nom de la
+    /// macro, modificateur `macro` ; ses références sont celles du corps
+    /// (`right`) de chacune de ses règles — les motifs (`$x:expr`) ne nomment
+    /// rien du projet.
+    fn extract_rust_macro(&self, node: SyntaxNode, content: &str, depth: usize, parent: Option<String>, file_imports: &[ImportReference]) -> Option<ScopeInfo> {
+        let name = self.base.get_node_text(node.child_by_field_name("name"), content);
+        if name.is_empty() {
+            return None;
+        }
+        let start_line = node.start_position().row + 1;
+        let end_line = node.end_position().row + 1;
+        let node_content = self.base.get_node_text(Some(node), content);
+        let content_dedented = self.base.dedent_content(&node_content);
+        let exclusions = self.base.build_reference_exclusions(&name, &[]);
+        let mut identifier_references = Vec::new();
+        let mut c = node.walk();
+        for regle in node.named_children(&mut c).filter(|x| x.kind() == "macro_rule") {
+            if let Some(corps) = regle.child_by_field_name("right") {
+                identifier_references.extend(self.base.extract_identifier_references(corps, content, exclusions.clone()));
+            }
+        }
+        let import_references = self.base.resolve_imports_for_scope(&identifier_references, file_imports);
+        let mut seen = HashSet::new();
+        let imports = import_references.iter().filter_map(|r| seen.insert(r.source.clone()).then(|| r.source.clone())).collect();
+        Some(ScopeInfo {
+            test: None,
+            name: name.clone(),
+            r#type: ScopeInfoType::Function,
+            scope_start_line: start_line,
+            signature_start_line: start_line,
+            signature_end_line: start_line,
+            body_start_line: Some(start_line),
+            body_end_line: Some(end_line),
+            scope_end_line: end_line,
+            scope_start_byte: 0,
+            scope_end_byte: 0,
+            file_path: String::new(),
+            signature: format!("macro_rules! {name}"),
+            parameters: vec![],
+            return_type: None,
+            return_type_info: None,
+            modifiers: vec!["macro".to_string()],
+            generic_parameters: None,
+            heritage_clauses: None,
+            decorator_details: None,
+            content: node_content.clone(),
+            content_dedented,
+            children: vec![],
+            members: None,
+            enum_members: None,
+            variables: None,
+            dependencies: self.base.extract_dependencies(&node_content),
+            exports: vec![],
+            imports,
+            import_references,
+            identifier_references,
+            ast_valid: true,
+            ast_issues: vec![],
+            ast_notes: vec![],
+            complexity: 1,
+            lines_of_code: end_line - start_line + 1,
+            parent,
+            depth,
+            docstring: self.base.extract_line_doc(node, content, RUST_DOC_PREFIXES),
+            decorators: None,
+            value: None,
+        })
     }
 
     /// Try to extract closure name from parent let binding (e.g., let adder = |a, b| a + b;)
