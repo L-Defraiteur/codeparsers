@@ -2120,11 +2120,15 @@ impl BaseScopeExtractionParser {
 
     /// Build reference exclusions set for identifier extraction
 
-    pub fn build_reference_exclusions(&self, name: &str, parameters: &[ParameterInfo]) -> HashSet<String> {
+    ///
+    /// Le nom du scope n'y entre pas : exclu par son texte, il cachait toute
+    /// occurrence du nom — l'appel récursif, et l'appel d'une méthode homonyme
+    /// sur un autre receveur (`sink->acquireLocksBeforeExecution(…)` dans
+    /// `QueryProcessor::acquireLocksBeforeExecution`, `Inner::new()` dans un
+    /// `fn new`). La déclaration elle-même s'écarte par sa position
+    /// ([`declaring_positions`]).
+    pub fn build_reference_exclusions(&self, _name: &str, parameters: &[ParameterInfo]) -> HashSet<String> {
         let mut exclusions = HashSet::new();
-        if !name.is_empty() {
-            exclusions.insert(name.to_string());
-        }
         for param in parameters {
             if !param.name.is_empty() {
                 exclusions.insert(param.name.clone());
@@ -2158,9 +2162,17 @@ impl BaseScopeExtractionParser {
         }
     }
 
+    /// Le nom du nœud lui-même n'est pas un symbole local : c'est celui du
+    /// scope, qu'un appel récursif utilise (voir `build_reference_exclusions`).
     pub fn collect_local_symbols(&self, node: SyntaxNode, content: &str) -> HashSet<String> {
         let mut symbols = HashSet::new();
-        self.collect_local_symbols_visit(node, content, &mut symbols);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if node.child_by_field_name("name").is_some_and(|n| n.id() == child.id()) {
+                continue;
+            }
+            self.collect_local_symbols_visit(child, content, &mut symbols);
+        }
         symbols
     }
 
@@ -2286,6 +2298,12 @@ impl BaseScopeExtractionParser {
             }
         }
         self.extract_identifier_references_visit(node, content, &exclude, &mut references);
+        // Le nom qui déclare ce scope n'est pas un usage : écarté par sa
+        // position, pas par son texte (voir `build_reference_exclusions`).
+        let declarants = declaring_positions(node);
+        if !declarants.is_empty() {
+            references.retain(|_, r| !declarants.contains(&(r.line, r.column.unwrap_or(usize::MAX))));
+        }
         // C++ : les gardes de verrou RAII. Un mutex local (déclaré dans la
         // fonction, donc lié et typé) n'est pas un champ.
         if matches!(self.language, SupportedLanguage::Cpp) {
@@ -4625,6 +4643,62 @@ fn is_comment_line(ligne: &str, dans_un_bloc: &mut bool) -> bool {
         return l.trim_end().ends_with("*/");
     }
     l.starts_with("//") || l == "#" || l.starts_with("# ") || l.starts_with("#!/")
+}
+
+/// **Les positions (ligne à partir de 1, colonne) des identifiants qui
+/// déclarent `noeud`** : son nom (champ `name`), le déclarateur d'une
+/// fonction C ou C++ (`QueryProcessor::run`, `Foo::~Foo`, `operator==` — le
+/// chemin entier, qui qualifie la déclaration sans rien utiliser), le type
+/// d'un bloc `impl` Rust. Un usage du même nom ailleurs dans le scope (un
+/// appel récursif, une méthode homonyme d'un autre receveur) reste une
+/// référence.
+pub fn declaring_positions(noeud: SyntaxNode) -> HashSet<(usize, usize)> {
+    fn feuilles(n: SyntaxNode, out: &mut HashSet<(usize, usize)>) {
+        // Les arguments génériques ne déclarent rien : `Inner` dans
+        // `impl Display for Wrapper<Inner>`, `int` dans `Foo<int>::bar`.
+        if matches!(n.kind(), "type_arguments" | "template_argument_list" | "type_parameters" | "template_parameter_list" | "type_argument_list") {
+            return;
+        }
+        if n.child_count() == 0 {
+            out.insert((n.start_position().row + 1, n.start_position().column));
+            return;
+        }
+        for i in 0..n.child_count() {
+            if let Some(c) = n.child(i) {
+                feuilles(c, out);
+            }
+        }
+    }
+    let mut out = HashSet::new();
+    let declarant = match noeud.kind() {
+        "impl_item" => noeud.child_by_field_name("type"),
+        "function_definition" | "declaration" | "field_declaration" if noeud.child_by_field_name("declarator").is_some() => {
+            // C, C++ : le nom est au bout de la chaîne des déclarateurs.
+            let mut d = noeud.child_by_field_name("declarator");
+            while let Some(x) = d {
+                match x.kind() {
+                    "function_declarator" | "pointer_declarator" | "reference_declarator" | "init_declarator" | "array_declarator"
+                    | "parenthesized_declarator" | "attributed_declarator" => d = x.child_by_field_name("declarator"),
+                    _ => break,
+                }
+            }
+            d
+        }
+        _ => noeud.child_by_field_name("name"),
+    };
+    if let Some(d) = declarant {
+        feuilles(d, &mut out);
+    }
+    out
+}
+
+/// `refs` sans les identifiants qui déclarent `noeud` ([`declaring_positions`]).
+pub fn without_declaring_names(noeud: SyntaxNode, mut refs: Vec<IdentifierReference>) -> Vec<IdentifierReference> {
+    let declarants = declaring_positions(noeud);
+    if !declarants.is_empty() {
+        refs.retain(|r| !declarants.contains(&(r.line, r.column.unwrap_or(usize::MAX))));
+    }
+    refs
 }
 
 /// Le nombre de lignes vides en tête de `texte`, que `trim` va retirer.

@@ -1422,7 +1422,7 @@ impl RustScopeExtractionParser {
 
         // Visit all nodes to find Rust-specific type references
         visit_rust_type_refs(self, node, content, &exclude, &mut seen, &mut references);
-        references
+        super::base_scope_extraction_parser::without_declaring_names(node, references)
     }
 }
 

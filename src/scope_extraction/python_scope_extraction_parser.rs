@@ -1032,11 +1032,10 @@ impl PythonScopeExtractionParser {
 
     /// Build reference exclusions set for identifier extraction
 
-    fn build_reference_exclusions(&self, name: &str, parameters: &[ParameterInfo]) -> HashSet<String> {
+    /// Le nom du scope n'y entre pas : voir la même fonction de la base ;
+    /// la déclaration s'écarte par sa position.
+    fn build_reference_exclusions(&self, _name: &str, parameters: &[ParameterInfo]) -> HashSet<String> {
         let mut exclusions = HashSet::new();
-        if !name.is_empty() {
-            exclusions.insert(name.to_string());
-        }
         for param in parameters {
             if !param.name.is_empty() {
                 exclusions.insert(param.name.clone());
@@ -1050,9 +1049,16 @@ impl PythonScopeExtractionParser {
 
     /// Collect local symbols (definitions) from a node
 
+    /// Le nom du nœud lui-même n'est pas un symbole local (voir la base).
     fn collect_local_symbols(&self, node: SyntaxNode, content: &str) -> HashSet<String> {
         let mut symbols = HashSet::new();
-        self.visit_local_symbols(node, content, &mut symbols);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if node.child_by_field_name("name").is_some_and(|n| n.id() == child.id()) {
+                continue;
+            }
+            self.visit_local_symbols(child, content, &mut symbols);
+        }
         symbols
     }
 
@@ -1103,7 +1109,7 @@ impl PythonScopeExtractionParser {
                 r.qualifier_deferred = crate::scope_extraction::usage::deferred_for_qualifier(q, &types, &retours, englobant.as_deref(), false);
             }
         }
-        references.into_values().collect()
+        super::base_scope_extraction_parser::without_declaring_names(node, references.into_values().collect())
     }
 
     /// Helper for extract_identifier_references — recursive visitor

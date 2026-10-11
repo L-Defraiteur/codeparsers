@@ -1145,6 +1145,6 @@ impl GoScopeExtractionParser {
             &self.base, &mut seen, &mut references,
         );
 
-        references
+        super::base_scope_extraction_parser::without_declaring_names(node, references)
     }
 }
