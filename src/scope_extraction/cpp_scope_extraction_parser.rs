@@ -140,7 +140,10 @@ impl CppScopeExtractionParser {
         let mut parser = tree_sitter::Parser::new();
         parser.set_language(&tree_sitter_cpp::LANGUAGE.into())
             .expect("failed to set C++ language");
-        let tree = parser.parse(content, None).expect("failed to parse");
+        // Les macros d'attribut d'un en-tête de classe masquées pour l'analyse
+        // syntaxique (`class RAG3DB_API Foo`) ; les textes restent l'original.
+        let masque = super::base_scope_extraction_parser::masquer_les_macros_d_attribut(content);
+        let tree = parser.parse(masque.as_ref(), None).expect("failed to parse");
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
 
         // Les `#include`, lus sur l'AST : l'extracteur commun est celui de
@@ -288,7 +291,40 @@ impl CppScopeExtractionParser {
             }
         }
 
+        // Une spécialisation de gabarit de fonction : `abs<int128_t>(…)` → `abs`.
+        let mut cursor = declarator.walk();
+        for child in declarator.children(&mut cursor) {
+            if child.kind() == "template_function" {
+                return child.child_by_field_name("name").map(|n| self.base.get_node_text(Some(n), content));
+            }
+        }
+
         None
+    }
+
+    /// **Un opérateur de conversion** (`int128_t::operator int8_t() const`) :
+    /// son nom (`operator int8_t`) et la classe qui le qualifie. tree-sitter
+    /// n'y met pas de `function_declarator`.
+    fn operateur_de_conversion(&self, node: SyntaxNode, content: &str) -> Option<(String, Option<String>)> {
+        let d = node.child_by_field_name("declarator")?;
+        let (cast, parent) = match d.kind() {
+            "operator_cast" => (d, None),
+            "qualified_identifier" => {
+                let nom = d.child_by_field_name("name")?;
+                if nom.kind() != "operator_cast" {
+                    return None;
+                }
+                let parent = d.child_by_field_name("scope").map(|sc| {
+                    let base = if sc.kind() == "template_type" { sc.child_by_field_name("name").unwrap_or(sc) } else { sc };
+                    self.base.get_node_text(Some(base), content)
+                });
+                (nom, parent)
+            }
+            _ => return None,
+        };
+        let t = cast.child_by_field_name("type")?;
+        let type_ = self.base.get_node_text(Some(t), content).split_whitespace().collect::<Vec<_>>().join(" ");
+        Some((format!("operator {type_}"), parent))
     }
 
     fn extract_c_parameters(&self, declarator: Option<SyntaxNode>, content: &str) -> Vec<ParameterInfo> {
@@ -410,8 +446,20 @@ impl CppScopeExtractionParser {
                 .find(|c| c.kind() == "field_declaration_list");
             if let Some(field_list) = field_list {
                 let mut cursor = field_list.walk();
-                for child in field_list.children(&mut cursor) {
-                    if child.kind() == "function_definition" {
+                for membre in field_list.children(&mut cursor) {
+                    // Une méthode gabarit (`template<typename T> void f(…)`)
+                    // est une méthode : son `function_definition` est dans le
+                    // `template_declaration`.
+                    let methode = match membre.kind() {
+                        "function_definition" => Some(membre),
+                        "template_declaration" => {
+                            let mut c2 = membre.walk();
+                            let trouvee = membre.named_children(&mut c2).find(|x| x.kind() == "function_definition");
+                            trouvee
+                        }
+                        _ => None,
+                    };
+                    if let Some(child) = methode {
                         let mut method_scope = self.extract_cpp_method(child, content, depth + 1, Some(scope_name.clone()), file_imports);
                         method_scope.file_path = file_path.to_string();
                         let method_name = method_scope.name.clone();
@@ -433,8 +481,10 @@ impl CppScopeExtractionParser {
         // Handle top-level function definitions (free functions, out-of-class methods)
         if node.kind() == "function_definition" {
             let declarator = self.find_function_declarator(node);
+            let conversion = if declarator.is_none() { self.operateur_de_conversion(node, content) } else { None };
             let name = declarator
                 .and_then(|d| self.extract_function_name(d, content))
+                .or_else(|| conversion.as_ref().map(|(n, _)| n.clone()))
                 .unwrap_or_else(|| "AnonymousFunction".to_string());
 
             // Detect out-of-class methods via qualified_identifier (e.g. Engine::start)
@@ -446,7 +496,7 @@ impl CppScopeExtractionParser {
                 self.qualified_parts(qi, content).and_then(|(chemin, _)| chemin.last().cloned())
             });
 
-            let effective_parent = qualified_parent.or(parent);
+            let effective_parent = qualified_parent.or_else(|| conversion.and_then(|(_, p)| p)).or(parent);
             let mut scope = self.extract_cpp_method(node, content, depth, effective_parent, file_imports);
             scope.r#type = ScopeInfoType::Function;
             scope.name = name;
@@ -603,8 +653,25 @@ impl CppScopeExtractionParser {
         let mut cursor = node.walk();
         let name_node = node.children(&mut cursor)
             .find(|c| c.kind() == "type_identifier");
+        // Sans nom simple : une spécialisation (`ListTypeResolver<Concat>` →
+        // `ListTypeResolver`), un nom qualifié (`std::hash<int128_t>` →
+        // `hash`), ou le nom du `typedef struct { … } Nom;`.
         let name = name_node
             .map(|n| self.base.get_node_text(Some(n), content))
+            .or_else(|| {
+                let n = node.child_by_field_name("name")?;
+                let mut x = n;
+                while x.kind() == "qualified_identifier" {
+                    x = x.child_by_field_name("name")?;
+                }
+                let x = if x.kind() == "template_type" { x.child_by_field_name("name")? } else { x };
+                Some(self.base.get_node_text(Some(x), content))
+            })
+            .or_else(|| {
+                let p = node.parent().filter(|p| p.kind() == "type_definition")?;
+                let d = p.child_by_field_name("declarator")?;
+                Some(self.base.get_node_text(Some(d), content))
+            })
             .unwrap_or_else(|| "AnonymousClass".to_string());
         let is_struct = node.kind() == "struct_specifier";
 
@@ -1194,6 +1261,11 @@ impl CppScopeExtractionParser {
             .find(|c| c.kind() == "type_identifier");
         let name = name_node
             .map(|n| self.base.get_node_text(Some(n), content))
+            .or_else(|| {
+                // `typedef enum { … } Nom;` : le nom du typedef.
+                let p = node.parent().filter(|p| p.kind() == "type_definition")?;
+                p.child_by_field_name("declarator").map(|d| self.base.get_node_text(Some(d), content))
+            })
             .unwrap_or_else(|| "AnonymousEnum".to_string());
 
         // Detect "enum class" vs plain "enum"

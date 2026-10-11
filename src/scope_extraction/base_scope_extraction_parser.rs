@@ -4596,6 +4596,43 @@ pub fn local_binding(nom: &str) -> String {
     format!("\u{1}let:{nom}")
 }
 
+/// **Le texte à donner à tree-sitter pour du C/C++, macros d'attribut
+/// masquées** : dans `class RAG3DB_API Foo {` (ou `struct X_EXPORT Foo :
+/// Base`), deux noms avant le corps sont impossibles en C++ — le premier,
+/// en majuscules, est une macro d'export ou d'attribut que tree-sitter ne
+/// connaît pas, et qui lui faisait lire la classe comme une définition de
+/// fonction (un scope `AnonymousFunction`, la classe perdue). Il est
+/// remplacé par des espaces : même longueur, octets et lignes inchangés —
+/// l'arbre se construit sur ce texte, les textes des scopes se lisent sur
+/// l'original.
+pub fn masquer_les_macros_d_attribut(content: &str) -> std::borrow::Cow<'_, str> {
+    static TETE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = TETE.get_or_init(|| {
+        regex::Regex::new(r"\b(?:class|struct|union)\s+((?:[A-Z][A-Z0-9_]{2,}\s+)+)[A-Za-z_][A-Za-z0-9_]*\s*(?:final\s*)?[:{]").expect("motif")
+    });
+    // Et une macro d'export par convention de nom (`…_API`, `…_EXPORT`) en
+    // tête d'une déclaration : `RAG3DB_API const std::vector<T>& f() const`
+    // se lisait sans nom.
+    static LIGNE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re2 = LIGNE.get_or_init(|| {
+        regex::Regex::new(r"(?m)^[ \t]*([A-Z][A-Z0-9_]*_(?:API|EXPORT|EXPORTS|PUBLIC|DLL))[ \t]+[A-Za-z_:~]").expect("motif")
+    });
+    if !re.is_match(content) && !re2.is_match(content) {
+        return std::borrow::Cow::Borrowed(content);
+    }
+    let mut octets = content.as_bytes().to_vec();
+    for c in re.captures_iter(content).chain(re2.captures_iter(content)) {
+        if let Some(m) = c.get(1) {
+            for o in &mut octets[m.start()..m.end()] {
+                if !o.is_ascii_whitespace() {
+                    *o = b' ';
+                }
+            }
+        }
+    }
+    std::borrow::Cow::Owned(String::from_utf8(octets).expect("seuls des octets ASCII remplacés"))
+}
+
 /// La clé qui dit qu'une variable a un type lisible : son accès qualifié
 /// (`n.run()`) reste une référence même si `n` est exclu comme paramètre.
 pub fn typed_binding(nom: &str) -> String {

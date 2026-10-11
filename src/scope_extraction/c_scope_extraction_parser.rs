@@ -121,7 +121,8 @@ impl CScopeExtractionParser {
         let mut parser = tree_sitter::Parser::new();
         parser.set_language(&tree_sitter_c::LANGUAGE.into())
             .expect("failed to set C language");
-        let tree = parser.parse(content, None).expect("failed to parse");
+        let masque = super::base_scope_extraction_parser::masquer_les_macros_d_attribut(content);
+        let tree = parser.parse(masque.as_ref(), None).expect("failed to parse");
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
 
         let structured_imports = self.base.extract_structured_imports(content, None);
