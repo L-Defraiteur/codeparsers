@@ -444,6 +444,12 @@ impl RelationshipResolver {
             if type_lu.is_none() && r.qualifier_deferred.is_some() && !qualificatif_de_type {
                 continue;
             }
+            // Un appel sur une locale qui était écarté (marqué, sans type
+            // différé) ne se relie pas par le nom ; une locale à type différé
+            // garde la règle d'avant (ci-dessus).
+            if type_lu.is_none() && r.untyped_receiver && r.qualifier_deferred.is_none() {
+                continue;
+            }
             let matched = candidates.iter().find(|c| {
                 c.file == relative_path && type_lu.as_deref().is_none_or(|t| c.parent.as_deref() == Some(t))
             });
@@ -555,7 +561,11 @@ impl RelationshipResolver {
                         .scope_mapping
                         .get(qualifier)
                         .is_some_and(|c| c.iter().any(|e| self.cross_file() || e.file == relative_path));
-                    if typed.is_none() && !qual_connu {
+                    // Un appel sur une locale qui était écarté (marqué, sans
+                    // type différé) ne se relie jamais, même homonyme d'un
+                    // scope ; une locale à type différé garde la règle d'avant.
+                    let ecarte = r.untyped_receiver && r.qualifier_deferred.is_none();
+                    if typed.is_none() && (!qual_connu || ecarte) {
                         continue;
                     }
                 }
@@ -663,6 +673,23 @@ impl RelationshipResolver {
         let mut vus: std::collections::HashSet<&str> = std::collections::HashSet::new();
         let mut out = Vec::new();
         for r in &scope.identifier_references {
+            // Un appel sur une locale sans type lu, non relié : visible, sous
+            // sa raison (même s'il nomme un scope du fichier).
+            if r.untyped_receiver {
+                let nom = r.identifier.as_str();
+                if !nom.is_empty() && !relies.contains(nom) && !deja.contains(nom) && vus.insert(nom) {
+                    out.push(UnresolvedReference {
+                        from_scope: scope.name.clone(),
+                        from_type: scope_type_str(&scope.r#type).to_string(),
+                        from_file: relative_path.clone(),
+                        identifier: nom.to_string(),
+                        kind: "call".to_string(),
+                        reason: "receveur non typé".to_string(),
+                        candidates: None,
+                    });
+                }
+                continue;
+            }
             // Un verrou sur un champ est compris : la relation « prend le
             // verrou Classe::champ » est l'affaire du consommateur.
             if matches!(r.kind, Some(IdentifierReferenceKind::Builtin) | Some(IdentifierReferenceKind::LocalScope))

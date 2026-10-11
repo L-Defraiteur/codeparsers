@@ -108,6 +108,13 @@ pub struct IdentifierReference {
     /// des homonymes par lui ; l'analyseur n'en déduit rien.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub import_origin: Option<ImportOrigin>,
+    /// **Le qualificatif est une locale dont aucun type ne se lit** (`t` dans
+    /// `let t = f(); t.update()`) : la référence est gardée, visible, mais ne
+    /// se relie jamais — le résolveur la range dans le relevé des
+    /// non-résolues (« receveur non typé »), et un consommateur ne la relie
+    /// pas par le seul nom (décision de Lucie, 11 octobre 2026).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub untyped_receiver: bool,
 }
 
 /// D'où vient un nom importé : le module (`crate::estimate`, `pkg.models`),

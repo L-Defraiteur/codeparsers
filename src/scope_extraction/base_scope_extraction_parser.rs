@@ -2315,6 +2315,22 @@ impl BaseScopeExtractionParser {
                 r.qualifier_deferred =
                     crate::scope_extraction::usage::deferred_with_bindings(q, &types, &retours, &liees, englobant.as_deref(), champ_implicite);
             }
+            // **Une locale liée à une expression différée** (`let t = f();`,
+            // `auto t = f();`) dont le type ne se lit pas sur place : marquée
+            // aussi. Le résolveur lit le type différé s'il le trouve ; sinon
+            // il ne la reliait déjà pas par le nom — la marque lui donne sa
+            // raison, et le dit au consommateur. Un type lu lève la marque.
+            if r.qualifier_type.is_some() {
+                r.untyped_receiver = false;
+            } else if r.qualifier_deferred.is_some() && r.usage == Some(crate::scope_extraction::types::UsageKind::Call) {
+                if let Some(q) = r.qualifier.as_deref() {
+                    let simple = !q.is_empty() && q.chars().all(|c| c.is_alphanumeric() || c == '_');
+                    let instance = matches!(q, "self" | "this" | "Self");
+                    if simple && !instance && (exclude.contains(q) || exclude.contains(&local_binding(q)) || exclude.contains(&typed_binding(q))) {
+                        r.untyped_receiver = true;
+                    }
+                }
+            }
         }
         references.into_values().collect()
     }
@@ -2365,6 +2381,7 @@ impl BaseScopeExtractionParser {
                         source: None,
                         target_scope: None,
                         is_local_import: None,
+                        untyped_receiver: false,
                     });
                 }
             }
@@ -2433,13 +2450,21 @@ impl BaseScopeExtractionParser {
                     return;
                 }
 
+                let mut ecarte_avant = false;
                 if let Some(ref q) = qualifier {
                     // Allow instance keywords (this/self) as qualifiers even if
                     // they appear in the exclude set (e.g. self is a parameter name)
                     let is_instance_kw = q == "this"
                         || (q == "self" && matches!(self.language, SupportedLanguage::Python | SupportedLanguage::Rust));
+                    // Une locale dont aucun type ne se lit : un accès de champ
+                    // reste écarté ; un APPEL est gardé, visible, marqué — il
+                    // ne se reliera jamais par le seul nom (décision de
+                    // Lucie, 11 octobre 2026 ; il était écarté en silence).
                     if !is_instance_kw && exclude.contains(q) && !exclude.contains(&typed_binding(q)) {
-                        return;
+                        if crate::scope_extraction::usage::usage_of(current) != crate::scope_extraction::types::UsageKind::Call {
+                            return;
+                        }
+                        ecarte_avant = true;
                     }
                 }
 
@@ -2462,6 +2487,7 @@ impl BaseScopeExtractionParser {
                     source: None,
                     target_scope: None,
                     is_local_import: None,
+                    untyped_receiver: ecarte_avant,
                 });
             }
             return;
@@ -2869,6 +2895,7 @@ impl BaseScopeExtractionParser {
                         source: None,
                         target_scope: None,
                         is_local_import: None,
+                        untyped_receiver: false,
                     });
                     suivis.insert(symbol_name.to_string());
                 }
@@ -2925,6 +2952,7 @@ impl BaseScopeExtractionParser {
                             source: None,
                             target_scope: Some(target_id),
                             is_local_import: None,
+                            untyped_receiver: false,
                         });
                         continue;
                     }
@@ -2946,6 +2974,7 @@ impl BaseScopeExtractionParser {
                         source: Some(import_match.source.clone()),
                         target_scope: None,
                         is_local_import: Some(import_match.is_local),
+                        untyped_receiver: false,
                     });
                     if !scope.import_references.iter().any(|ir| ir.source == import_match.source && ir.imported == import_match.imported) {
                         scope.import_references.push(import_match.clone());
@@ -2994,6 +3023,7 @@ impl BaseScopeExtractionParser {
                                 source: None,
                                 target_scope: Some(target_id),
                                 is_local_import: None,
+                                untyped_receiver: false,
                             });
                             continue;
                         }
@@ -3014,6 +3044,7 @@ impl BaseScopeExtractionParser {
                             source: Some(import_match.source.clone()),
                             target_scope: None,
                             is_local_import: Some(import_match.is_local),
+                            untyped_receiver: false,
                         });
                         if !scope.import_references.iter().any(|ir| ir.source == import_match.source && ir.imported == import_match.imported) {
                             scope.import_references.push(import_match.clone());
@@ -3046,7 +3077,9 @@ impl BaseScopeExtractionParser {
             for scope in scopes.iter() {
                 if scope.parent.as_deref() == Some(&class_name) && scope.file_path == class_file_path {
                     for r in &scope.identifier_references {
-                        if r.kind == Some(IdentifierReferenceKind::LocalScope) {
+                        // Un appel sur un receveur non typé n'est pas une
+                        // référence de type : il ne remonte pas à la classe.
+                        if r.kind == Some(IdentifierReferenceKind::LocalScope) && !r.untyped_receiver {
                             if let Some(ref ts) = r.target_scope {
                                 type_references.entry(r.identifier.clone()).or_insert(TypeRefInfo {
                                     target_scope: ts.clone(),
@@ -3080,6 +3113,7 @@ impl BaseScopeExtractionParser {
                         source: None,
                         target_scope: Some(ref_info.target_scope),
                         is_local_import: None,
+                        untyped_receiver: false,
                     });
                 }
             }
@@ -3662,6 +3696,7 @@ impl BaseScopeExtractionParser {
                     source: None,
                     target_scope: None,
                     is_local_import: None,
+                    untyped_receiver: false,
                 });
             }
         }

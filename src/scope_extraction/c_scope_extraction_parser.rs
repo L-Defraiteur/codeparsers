@@ -928,6 +928,7 @@ impl CScopeExtractionParser {
                             source: None,
                             target_scope: None,
                             is_local_import: None,
+                            untyped_receiver: false,
                         });
                     }
                 }
