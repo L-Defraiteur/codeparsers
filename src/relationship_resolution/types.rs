@@ -65,6 +65,12 @@ pub struct RelationshipMetadata {
     pub clause: Option<RelationshipMetadataClause>,
     pub decorator_args: Option<String>,
     pub fallback_resolution: Option<bool>,
+    /// **Posée par le nom seul** : un appel sur un receveur qualifié (ni
+    /// `self` / `this`, ni un type) dont aucun type ne s'est lu, relié à un
+    /// scope de ce nom. Le lien peut être juste ; il n'est pas sûr. Un
+    /// consommateur le marque « nom » (décision du 11 octobre 2026).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_name: Option<bool>,
     pub symbol: Option<String>,
     /// Les usages qui ont fait cette relation : un par occurrence, ou
     /// plusieurs quand le résolveur a fusionné les références d'un scope vers

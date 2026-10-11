@@ -469,6 +469,7 @@ impl RelationshipResolver {
                     continue;
                 }
                 let rel_type = detect_relationship_type_for_reference(scope, &target.name, &target.r#type, r);
+                let by_name = (type_lu.is_none() && !qualificatif_de_type && receveur_variable(r)).then_some(true);
 
                 relationships.push(ResolvedRelationship {
                     r#type: rel_type,
@@ -484,6 +485,7 @@ impl RelationshipResolver {
                         context: r.context.clone(),
                         via_import: Some(false),
                         sites: vec![site_of(r)],
+                        by_name,
                         ..Default::default()
                     }),
                 });
@@ -647,6 +649,7 @@ impl RelationshipResolver {
                         context: r.context.clone(),
                         via_import: Some(false),
                         fallback_resolution: if is_cross_file { Some(true) } else { None },
+                        by_name: (typed.is_none() && receveur_variable(r)).then_some(true),
                         sites: vec![site_of(r)],
                         ..Default::default()
                     }),
@@ -1531,6 +1534,15 @@ fn noter_type_de_champ<K: std::hash::Hash + Eq>(table: &mut HashMap<K, Option<St
             table.insert(k, Some(t.to_string()));
         }
     }
+}
+
+/// **Un receveur qui est une variable** : qualifié, ni `self` / `this` /
+/// `Self`, ni un chemin (`a::b`), ni un nom de type (majuscule). Relié sans
+/// type lu, le lien est posé par le nom seul.
+fn receveur_variable(r: &IdentifierReference) -> bool {
+    r.qualifier.as_deref().is_some_and(|q| {
+        !matches!(q, "self" | "this" | "Self") && !q.contains("::") && q.starts_with(|c: char| c.is_lowercase() || c == '_')
+    })
 }
 
 /// **Un accès de champ ne vise pas une fonction homonyme.** `p.name` dans

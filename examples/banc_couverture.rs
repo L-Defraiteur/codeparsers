@@ -406,6 +406,16 @@ fn main() {
             }
         }
         m.insert(format!("{mode}.non_resolues"), rel.unresolved_references.len().to_string());
+        // Les relations d'appel, et celles posées par le nom seul (receveur
+        // non typé) — neutre : elle se relit. Lue par sérialisation, pour se
+        // compiler aussi contre un codeparsers d'avant (banc/comparer.sh).
+        let consomme: Vec<_> = rel.relationships.iter().filter(|x| format!("{:?}", x.r#type) == "CONSUMES").collect();
+        let par_le_nom = consomme
+            .iter()
+            .filter(|x| x.metadata.as_ref().and_then(|md| serde_json::to_value(md).ok()).is_some_and(|v| v.get("by_name") == Some(&serde_json::Value::Bool(true))))
+            .count();
+        m.insert(format!("{mode}.relations.consumes"), consomme.len().to_string());
+        m.insert(format!("{mode}.relations.consumes.par_le_nom"), par_le_nom.to_string());
         if !croise {
             let (mut exclusifs, mut partages) = (0usize, 0usize);
             for s in &scopes {
