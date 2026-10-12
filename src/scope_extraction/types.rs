@@ -331,6 +331,17 @@ pub enum TestRole {
     Support,
 }
 
+impl TestRole {
+    /// Le nom de la valeur, tel qu'il est sérialisé et stocké (`case`, …).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TestRole::Case => "case",
+            TestRole::Suite => "suite",
+            TestRole::Support => "support",
+        }
+    }
+}
+
 /// Ce qui dit qu'un scope est un test.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -342,6 +353,22 @@ pub enum TestCertainty {
     /// Seul le nom le dit, selon une convention réglable de l'outil (pytest :
     /// `test_*` dans un fichier `test_*.py`, classes `Test*`).
     Convention,
+    /// Une déclaration du dépôt le dit, pas la grammaire : un motif de fichiers
+    /// de test au manifeste (les `.test` du moteur), posé par rag3weaver à
+    /// l'ingestion sur un scope sans marque. codeparsers ne la pose jamais ;
+    /// une marque de grammaire l'emporte toujours (accord du 12 octobre 2026).
+    Declared,
+}
+
+impl TestCertainty {
+    /// Le nom de la valeur, tel qu'il est sérialisé et stocké (`certain`, …).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TestCertainty::Certain => "certain",
+            TestCertainty::Convention => "convention",
+            TestCertainty::Declared => "declared",
+        }
+    }
 }
 
 /// La marque de test d'un scope.
@@ -436,4 +463,21 @@ pub struct ScopeFileAnalysis {
     /// `ast_valid`, qui parle d'une tentative qui a eu lieu.
     #[serde(default)]
     pub aucun_parseur: bool,
+}
+
+#[cfg(test)]
+mod test_mark_names {
+    use super::*;
+
+    /// `as_str` rend exactement ce que serde écrit : une seule énumération,
+    /// un seul nom par valeur, `declared` compris.
+    #[test]
+    fn les_noms_des_marques_sont_ceux_de_serde() {
+        for c in [TestCertainty::Certain, TestCertainty::Convention, TestCertainty::Declared] {
+            assert_eq!(serde_json::to_string(&c).unwrap(), format!("\"{}\"", c.as_str()));
+        }
+        for r in [TestRole::Case, TestRole::Suite, TestRole::Support] {
+            assert_eq!(serde_json::to_string(&r).unwrap(), format!("\"{}\"", r.as_str()));
+        }
+    }
 }
