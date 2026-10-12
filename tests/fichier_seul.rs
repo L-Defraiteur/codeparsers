@@ -209,6 +209,9 @@ fn un_type_differe_du_fichier_se_lit_des_l_analyse() {
     assert_eq!(drop.qualifier_type.as_deref(), Some("SchemaDialect"), "{drop:#?}");
     let bulk = refs.iter().find(|r| r.identifier == "bulk" && r.line == 20).expect("la référence bulk");
     assert_eq!(bulk.qualifier_type.as_deref(), Some("Catalog"), "{bulk:#?}");
+    // Tranché dans le fichier, le différé est retiré : le consommateur ne le
+    // stocke ni ne le relit plus (12 octobre 2026, le coût des symboles).
+    assert!(drop.qualifier_deferred.is_none() && bulk.qualifier_deferred.is_none(), "{drop:#?} {bulk:#?}");
 }
 
 /// **En Rust, la racine d'un `use` dit seule ce qui est interne** :

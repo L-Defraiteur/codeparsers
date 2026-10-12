@@ -359,6 +359,12 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
             };
             if lu.is_some() {
                 r.qualifier_type = lu;
+                // Tranché ici : le différé ne sert plus à personne (le
+                // résolveur et le rendez-vous de rag3weaver prennent le type
+                // lu d'abord), et rag3weaver le stockait puis le relisait
+                // dans chaque arête MENTIONS. La marque `untyped_receiver`
+                // reste telle quelle : rien ne la lit plus quand un type est lu.
+                r.qualifier_deferred = None;
             }
         }
     }
