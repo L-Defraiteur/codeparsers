@@ -246,7 +246,17 @@ impl BaseScopeExtractionParser {
         let mut parser = tree_sitter::Parser::new();
         match self.language {
             SupportedLanguage::Typescript | SupportedLanguage::Javascript => {
-                parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
+                // **La grammaire suit l'extension, pas la langue** (18 octobre 2026) : un même
+                // parseur sert TS et JS (le cache de `parser_worker`). La grammaire TypeScript n'a
+                // pas de JSX : un `.tsx` y tombait en nœuds `ERROR` et `<Button/>` n'était l'usage
+                // de rien. TSX pour `.tsx` et pour le JavaScript (`.jsx`, `.js`…, comme les mesures
+                // de couverture) ; TypeScript pour `.ts`, où `<T>x` est une assertion de type.
+                let grammaire = if uses_tsx_grammar(file_path) {
+                    tree_sitter_typescript::LANGUAGE_TSX
+                } else {
+                    tree_sitter_typescript::LANGUAGE_TYPESCRIPT
+                };
+                parser.set_language(&grammaire.into())
                     .expect("failed to set TypeScript language");
             }
             SupportedLanguage::Python => {
@@ -2180,8 +2190,15 @@ impl BaseScopeExtractionParser {
         // Skip JSX elements — they are USAGE not DEFINITIONS
         let kind = current.kind();
         if kind == "jsx_opening_element" || kind == "jsx_self_closing_element" || kind == "jsx_closing_element" {
+            // Le nom de la balise est un usage : on ne descend que dans ses attributs. Y descendre
+            // faisait de `Button` (le champ `name` de la balise) une définition locale, qui
+            // écartait ensuite la référence de `<Button/>` (18 octobre 2026).
+            let nom = current.child_by_field_name("name").map(|n| n.id());
             let mut cursor = current.walk();
             for child in current.children(&mut cursor) {
+                if Some(child.id()) == nom {
+                    continue;
+                }
                 self.collect_local_symbols_visit(child, content, symbols);
             }
             return;
@@ -2411,9 +2428,15 @@ impl BaseScopeExtractionParser {
 
         // Handle JSX component references (e.g., <SessionSidebar />)
         if kind == "jsx_opening_element" || kind == "jsx_self_closing_element" {
-            if let Some(name_node) = current.child_by_field_name("name") {
+            // `<Foo.Bar/>` : l'usage est celui de `Bar` (le nom membre) ; une balise en minuscule
+            // (`<div>`, `<svg:path>`) est un élément intrinsèque du DOM, l'usage de rien (règle du JSX).
+            let name_node = current.child_by_field_name("name").map(|n| {
+                if n.kind() == "member_expression" { n.child_by_field_name("property").unwrap_or(n) } else { n }
+            });
+            if let Some(name_node) = name_node {
                 let identifier = self.get_node_text(Some(name_node), content);
                 if !identifier.is_empty()
+                    && !identifier.starts_with(|c: char| c.is_ascii_lowercase())
                     && !exclude.contains(&identifier)
                     && !self.stop_words.contains(&identifier)
                     && !self.builtin_identifiers.contains(&identifier)
@@ -4986,4 +5009,14 @@ impl<'a> LignesAuDessus<'a> {
             self.content.split('\n').nth(i)
         }
     }
+}
+
+/// La grammaire TSX pour ce fichier ? `.tsx` et le JavaScript (`.jsx`, `.js`, `.mjs`, `.cjs`),
+/// où le JSX est permis ; `.ts`, `.mts`, `.cts` gardent TypeScript (`<T>x` y est une assertion).
+pub fn uses_tsx_grammar(file_path: &str) -> bool {
+    let ext = std::path::Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    matches!(ext.as_deref(), Some("tsx" | "jsx" | "js" | "mjs" | "cjs"))
 }

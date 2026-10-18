@@ -18,6 +18,7 @@ use tree_sitter::{Language, Parser, LANGUAGE_VERSION, MIN_COMPATIBLE_LANGUAGE_VE
 fn chaque_grammaire_a_une_abi_que_tree_sitter_accepte() {
     let grammaires: Vec<(&str, Language)> = vec![
         ("typescript", tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
+        ("tsx", tree_sitter_typescript::LANGUAGE_TSX.into()),
         ("python", tree_sitter_python::LANGUAGE.into()),
         ("rust", tree_sitter_rust::LANGUAGE.into()),
         ("go", tree_sitter_go::LANGUAGE.into()),
