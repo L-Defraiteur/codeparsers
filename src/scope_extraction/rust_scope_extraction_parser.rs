@@ -225,6 +225,10 @@ impl RustScopeExtractionParser {
                 scope.modifiers.push("impl".to_string());
             }
             let scope_name = scope.name.clone();
+            // **Une méthode d'un `impl Trait for Type`** le dit (`trait_impl`) : à nom et type
+            // égaux, la méthode propre du type passe avant celle du trait (Rust), et un
+            // consommateur ne peut le savoir que par elle (19 octobre 2026).
+            let de_trait = scope.signature.starts_with("impl ") && scope.signature.contains(" for ");
             scopes.push(scope);
 
             // Extract methods from declaration_list
@@ -235,6 +239,9 @@ impl RustScopeExtractionParser {
                     if child.kind() == "function_item" {
                         let mut method_scope = self.extract_rust_method(child, content, depth + 1, Some(scope_name.clone()), file_imports);
                         method_scope.file_path = file_path.to_string();
+                        if de_trait && !method_scope.modifiers.iter().any(|m| m == "trait_impl") {
+                            method_scope.modifiers.push("trait_impl".to_string());
+                        }
                         let method_name = method_scope.name.clone();
                         scopes.push(method_scope);
 
