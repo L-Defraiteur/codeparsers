@@ -5,9 +5,9 @@
 //! Le 3 octobre 2026, `tree-sitter-c-sharp` 0.23.5 (une version de correctif !)
 //! était dans ce cas : codeparsers verrouillait 0.23.1, mais rag3weaver, qui
 //! résout la dépendance par son propre `Cargo.lock`, prenait 0.23.5, et tout
-//! fichier `.cs` faisait paniquer l'analyse. Ces tests tournent contre le
-//! verrou qui les compile : l'épingle `=` du `Cargo.toml` garantit que ce
-//! verrou et celui de rag3weaver ne divergent plus.
+//! fichier `.cs` faisait paniquer l'analyse. Depuis tree-sitter 0.27 (25 octobre
+//! 2026), qui lit l'ABI 15, l'épingle est tombée ; ces tests tournent contre le
+//! verrou qui les compile et gardent la règle.
 
 use codeparsers::parallel::project_parser::{ParseProjectOptions, ProjectParser, ProjectParserOptions};
 use codeparsers::relationship_resolution::types::RelationshipType;
@@ -32,7 +32,7 @@ fn chaque_grammaire_a_une_abi_que_tree_sitter_accepte() {
     ];
     let mut refusees = Vec::new();
     for (nom, langue) in grammaires {
-        let abi = langue.version();
+        let abi = langue.abi_version();
         let mut p = Parser::new();
         if p.set_language(&langue).is_err() {
             refusees.push(format!("{nom} (ABI {abi})"));

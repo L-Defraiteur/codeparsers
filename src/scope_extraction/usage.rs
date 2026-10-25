@@ -140,7 +140,7 @@ pub fn usage_of(noeud: Node) -> UsageKind {
     let mut n = noeud;
     while let Some(p) = n.parent() {
         let k = p.kind();
-        let dernier = p.named_child(p.named_child_count().saturating_sub(1)).is_some_and(|c| c.id() == n.id());
+        let dernier = p.named_child(p.named_child_count().saturating_sub(1) as u32).is_some_and(|c| c.id() == n.id());
         if ACCES.contains(&k) && dernier {
             n = p;
         } else if (k == "generic_function" && est_le_champ(p, "function", n))

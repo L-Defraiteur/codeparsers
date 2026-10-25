@@ -12,20 +12,17 @@ serde_json = "1"
 lazy_static = "1"
 regex = "1"
 pathdiff = "0.2"
-tree-sitter = "0.24"
+tree-sitter = "0.27"
 tree-sitter-typescript = "0.23"
-tree-sitter-python = "0.23"
-tree-sitter-rust = "0.23"
-tree-sitter-go = "0.23"
-tree-sitter-c = "0.23"
-tree-sitter-cpp = "0.23"
-# **Épinglée, et provisoirement.** 0.23.5, une version de correctif, est
-# compilée en ABI 15 : tree-sitter 0.24 la refuse, et l'analyse de tout `.cs`
-# panique. codeparsers verrouillait 0.23.1, mais rag3weaver résout par son
-# propre `Cargo.lock` et prenait 0.23.5 (3 octobre 2026). Le `=` force la même
-# version partout ; `tests/grammaires.rs` le vérifie. La vraie sortie est un
-# tree-sitter qui lit l'ABI 15.
-tree-sitter-c-sharp = "=0.23.1"
+tree-sitter-python = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-go = "0.25"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23.4"
+# **Plus d'épingle depuis tree-sitter 0.27** (25 octobre 2026), qui lit l'ABI 15 : 0.23.5,
+# compilée en ABI 15, faisait paniquer l'analyse de tout `.cs` sous 0.24, et codeparsers
+# l'épinglait à `=0.23.1`. `tests/grammaires.rs` vérifie que chaque grammaire liée se charge.
+tree-sitter-c-sharp = "0.23.5"
 # **La grammaire bash, pour décider — pas pour indexer.**
 #
 # Elle sert à `shell::decomposer`, qui réduit une ligne de commande en argv
@@ -34,14 +31,13 @@ tree-sitter-c-sharp = "=0.23.1"
 # dire deux runtimes C à garder en phase, et on s'est fait avoir le 29 août
 # par une extension construite contre un autre cœur.
 #
-# **0.23, pas 0.25 — et c'est l'ABI qui décide, pas Cargo.** Les grammaires
-# n'exigent que `tree-sitter-language ^0.1` côté dépendances, si bien que 0.25
-# s'installe sans broncher à côté de tree-sitter 0.24 ; mais elle est compilée
-# en ABI 15, et 0.24 refuse au-delà de 14 — « Incompatible language version 15.
-# Expected minimum 13, maximum 14 », à l'exécution et pas à la compilation.
-# C'est un test qui l'a attrapé, pas la lecture des métadonnées (30 août 2026).
-tree-sitter-bash = "0.23"
-tree-sitter-css = "0.23"
+# **C'est l'ABI qui décide, pas Cargo.** Les grammaires n'exigent que `tree-sitter-language
+# ^0.1` côté dépendances : une grammaire en ABI 15 s'installait à côté de tree-sitter 0.24, qui
+# la refusait à l'exécution (« Incompatible language version 15 », 30 août 2026). Depuis
+# tree-sitter 0.27 (25 octobre 2026), qui lit l'ABI 15, bash suit sa dernière version ; le test
+# `tests/grammaires.rs` garde la règle.
+tree-sitter-bash = "0.25"
+tree-sitter-css = "0.25"
 tree-sitter-html = "0.23"
 # Copie locale : le build.rs publié force un drapeau GCC que MSVC refuse
 # (vendor/tree-sitter-scss/VENDOR.md).

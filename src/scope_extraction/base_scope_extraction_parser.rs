@@ -1216,7 +1216,7 @@ impl BaseScopeExtractionParser {
             let args_node = value_node.child_by_field_name("arguments")
                 .or_else(|| {
                     for i in 0..value_node.named_child_count() {
-                        if let Some(c) = value_node.named_child(i) {
+                        if let Some(c) = value_node.named_child(i as u32) {
                             if c.kind() == "arguments" { return Some(c); }
                         }
                     }
@@ -1228,7 +1228,7 @@ impl BaseScopeExtractionParser {
                     if first_arg.kind() == "array" {
                         if constructor_name == "Map" {
                             for i in 0..first_arg.named_child_count() {
-                                if let Some(pair) = first_arg.named_child(i) {
+                                if let Some(pair) = first_arg.named_child(i as u32) {
                                     if pair.kind() == "array" && pair.named_child_count() >= 2 {
                                         let k = pair.named_child(0).unwrap();
                                         let v = pair.named_child(1).unwrap();
@@ -1262,7 +1262,7 @@ impl BaseScopeExtractionParser {
 
     fn collect_array_members(&self, array_node: SyntaxNode, content: &str, strip_quotes: &dyn Fn(&str) -> String, members: &mut Vec<ClassMemberInfo>) {
         for i in 0..array_node.named_child_count() {
-            let child = match array_node.named_child(i) { Some(c) => c, None => continue };
+            let child = match array_node.named_child(i as u32) { Some(c) => c, None => continue };
             let child_line = child.start_position().row + 1;
             match child.kind() {
                 "string" | "template_string" => members.push(ClassMemberInfo {
@@ -1295,7 +1295,7 @@ impl BaseScopeExtractionParser {
 
     fn collect_object_members(&self, object_node: SyntaxNode, content: &str, strip_quotes: &dyn Fn(&str) -> String, members: &mut Vec<ClassMemberInfo>) {
         for i in 0..object_node.named_child_count() {
-            let child = match object_node.named_child(i) { Some(c) => c, None => continue };
+            let child = match object_node.named_child(i as u32) { Some(c) => c, None => continue };
             if child.kind() == "pair" || child.kind() == "property_assignment" {
                 let key_node = child.child_by_field_name("key").or_else(|| child.named_child(0));
                 let val_node = child.child_by_field_name("value").or_else(|| child.named_child(1));
@@ -1307,7 +1307,7 @@ impl BaseScopeExtractionParser {
                     if vn.kind() == "array" {
                         let mut array_items = Vec::new();
                         for j in 0..vn.named_child_count() {
-                            if let Some(el) = vn.named_child(j) {
+                            if let Some(el) = vn.named_child(j as u32) {
                                 if el.kind() == "string" || el.kind() == "template_string" {
                                     array_items.push(strip_quotes(&self.get_node_text(Some(el), content)));
                                 }
@@ -1371,7 +1371,7 @@ impl BaseScopeExtractionParser {
                 let mut all_strings = true;
                 let mut has_props = false;
                 for i in 0..value_node.named_child_count() {
-                    if let Some(child) = value_node.named_child(i) {
+                    if let Some(child) = value_node.named_child(i as u32) {
                         if child.kind() == "pair" || child.kind() == "property_assignment" {
                             has_props = true;
                             let val_node = child.child_by_field_name("value").or_else(|| child.named_child(1));
@@ -1391,7 +1391,7 @@ impl BaseScopeExtractionParser {
                 let mut all_numbers = true;
                 let count = value_node.named_child_count();
                 for i in 0..count {
-                    if let Some(child) = value_node.named_child(i) {
+                    if let Some(child) = value_node.named_child(i as u32) {
                         if child.kind() != "string" && child.kind() != "template_string" { all_strings = false; }
                         if child.kind() != "number" { all_numbers = false; }
                     }
@@ -4714,7 +4714,7 @@ pub fn declaring_positions(noeud: SyntaxNode) -> HashSet<(usize, usize)> {
                     // `declarator` : son dernier enfant nommé l'est.
                     "function_declarator" | "pointer_declarator" | "reference_declarator" | "init_declarator" | "array_declarator"
                     | "parenthesized_declarator" | "attributed_declarator" => {
-                        d = x.child_by_field_name("declarator").or_else(|| x.named_child(x.named_child_count().checked_sub(1)?))
+                        d = x.child_by_field_name("declarator").or_else(|| x.named_child(x.named_child_count().checked_sub(1)? as u32))
                     }
                     _ => break,
                 }

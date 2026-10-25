@@ -956,7 +956,7 @@ impl CppScopeExtractionParser {
                                 match n.kind() {
                                     "field_identifier" | "identifier" => return Some(n),
                                     "pointer_declarator" | "reference_declarator" | "array_declarator" | "init_declarator" | "parenthesized_declarator" => {
-                                        n = n.child_by_field_name("declarator").or_else(|| n.named_child(n.named_child_count().saturating_sub(1)))?;
+                                        n = n.child_by_field_name("declarator").or_else(|| n.named_child(n.named_child_count().saturating_sub(1) as u32))?;
                                     }
                                     _ => return None,
                                 }
