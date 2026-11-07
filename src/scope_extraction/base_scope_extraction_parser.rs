@@ -2167,7 +2167,12 @@ impl BaseScopeExtractionParser {
             return;
         }
         let mut cursor = motif.walk();
-        for child in motif.named_children(&mut cursor) {
+        for (i, child) in motif.children(&mut cursor).enumerate() {
+            // La garde d'un bras (`Motif if garde(x)`, champ `condition` du `match_pattern`) est du
+            // code, pas un motif : ses noms ne sont pas des liaisons (tests/garde_de_match_rust.rs).
+            if !child.is_named() || (motif.kind() == "match_pattern" && motif.field_name_for_child(i as u32) == Some("condition")) {
+                continue;
+            }
             self.collect_pattern_bindings(child, content, symbols);
         }
     }
