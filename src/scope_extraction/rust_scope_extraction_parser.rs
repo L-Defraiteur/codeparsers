@@ -1699,6 +1699,9 @@ fn collect_pattern_bindings(n: SyntaxNode, content: &str, dans_motif: bool, out:
             // Les `let` et les paramètres de fonction sont déjà des locales
             // de la base (avec ses règles : l'initialiseur d'un `let`
             // masquant appelle encore la fonction).
+            // La garde d'un bras (`Motif if garde(x)`) est le champ `condition` du `match_pattern` :
+            // du code, pas un motif ; ses noms sont des références (tests/garde_de_match_rust.rs).
+            ("match_pattern", Some("condition")) => false,
             ("let_condition", Some("pattern")) | ("for_expression", Some("pattern")) | ("match_pattern", _) | ("closure_parameters", _) => true,
             // Le type ou le chemin d'un motif n'est pas une liaison.
             ("tuple_struct_pattern", Some("type")) | ("struct_pattern", Some("type")) | ("scoped_identifier", _) | ("field_pattern", Some("name")) => false,
