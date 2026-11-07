@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use codeparsers::parallel::project_parser::{ParseProjectOptions, ProjectParser, ProjectParserOptions};
 
-const SOURCE: &str = "pub fn route(m: &str, chemin: &str) -> u32 {\n    match (m, chemin) {\n        (\"GET\", p) if vue_portee(p) => 1,\n        (\"POST\", q) if est_court(q) && pret() => 2,\n        _ => 0,\n    }\n}\n\npub fn suite(x: Option<u32>, mut it: std::vec::IntoIter<u32>) -> u32 {\n    let mut n = 0;\n    if let Some(y) = lire(x) {\n        n += y;\n    }\n    while let Some(z) = it.next() {\n        n += z + borne();\n    }\n    n\n}\n\nfn vue_portee(p: &str) -> bool {\n    !p.is_empty()\n}\n\nfn est_court(q: &str) -> bool {\n    q.len() < 4\n}\n\nfn pret() -> bool {\n    true\n}\n\nfn lire(x: Option<u32>) -> Option<u32> {\n    x\n}\n\nfn borne() -> u32 {\n    1\n}\n";
+const SOURCE: &str = "pub fn route(m: &str, chemin: &str) -> u32 {\n    match (m, chemin) {\n        (\"GET\", p) if vue_portee(p) => 1,\n        (\"POST\", q) if est_court(q) && pret() => 2,\n        _ => 0,\n    }\n}\n\npub fn suite(x: Option<u32>, mut it: std::vec::IntoIter<u32>) -> u32 {\n    let mut n = 0;\n    if let Some(y) = lire(x) {\n        n += y;\n    }\n    while let Some(z) = it.next() {\n        n += z + borne();\n    }\n    n\n}\n\npub fn compte(v: Vec<u32>) -> usize {\n    v.iter().filter(|x| garde(**x)).map(|w| w + decale()).count()\n}\n\nfn garde(x: u32) -> bool {\n    x > 1\n}\n\nfn decale() -> u32 {\n    2\n}\n\nfn vue_portee(p: &str) -> bool {\n    !p.is_empty()\n}\n\nfn est_court(q: &str) -> bool {\n    q.len() < 4\n}\n\nfn pret() -> bool {\n    true\n}\n\nfn lire(x: Option<u32>) -> Option<u32> {\n    x\n}\n\nfn borne() -> u32 {\n    1\n}\n";
 
 fn references_de(nom: &str) -> Vec<String> {
     let chemin = "/virtual/garde.rs".to_string();
@@ -42,5 +42,14 @@ fn if_let_et_while_let_lisent_leur_valeur_et_lient_leur_motif() {
     assert!(refs.contains(&"borne".to_string()), "le corps d'un while let : {refs:?}");
     for local in ["y", "z", "n"] {
         assert!(!refs.contains(&local.to_string()), "« {local} » est une locale : {refs:?}");
+    }
+}
+
+#[test]
+fn le_corps_d_une_fermeture_passee_en_argument_est_lu() {
+    let refs = references_de("compte");
+    assert!(refs.contains(&"garde".to_string()) && refs.contains(&"decale".to_string()), "les appels dans une fermeture : {refs:?}");
+    for local in ["x", "w"] {
+        assert!(!refs.contains(&local.to_string()), "« {local} », paramètre de la fermeture, reste une locale : {refs:?}");
     }
 }
