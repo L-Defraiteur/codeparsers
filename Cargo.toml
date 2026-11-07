@@ -42,6 +42,11 @@ tree-sitter-html = "0.23"
 # Copie locale : le build.rs publié force un drapeau GCC que MSVC refuse
 # (vendor/tree-sitter-scss/VENDOR.md).
 tree-sitter-scss = { path = "vendor/tree-sitter-scss" }
+# **La coloration** (`syntax_highlighting`, 7 novembre 2026) : le moteur officiel, à la version de
+# tree-sitter, sur les `highlights.scm` que chaque grammaire livre. JavaScript n'est là que pour sa
+# requête : celle de TypeScript se lit après la sienne (`inherits`).
+tree-sitter-highlight = "0.27"
+tree-sitter-javascript = "0.25"
 indexmap = "2"
 blake3 = "1"
 rayon = "1"
