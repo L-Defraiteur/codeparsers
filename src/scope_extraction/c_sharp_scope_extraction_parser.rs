@@ -313,6 +313,7 @@ impl CSharpScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Namespace,
             scope_start_line: start_line,
@@ -419,6 +420,7 @@ impl CSharpScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Class,
             scope_start_line: start_line,
@@ -530,6 +532,7 @@ impl CSharpScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Class,
             scope_start_line: start_line,
@@ -633,6 +636,7 @@ impl CSharpScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Interface,
             scope_start_line: start_line,
@@ -717,6 +721,7 @@ impl CSharpScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Enum,
             scope_start_line: start_line,
@@ -868,6 +873,7 @@ impl CSharpScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name,
             r#type: ScopeInfoType::Method,
             scope_start_line: start_line,
@@ -973,6 +979,7 @@ impl CSharpScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: "constructor".to_string(),
             r#type: ScopeInfoType::Method,
             scope_start_line: start_line,

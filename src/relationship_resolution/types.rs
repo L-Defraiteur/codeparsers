@@ -92,6 +92,9 @@ pub struct ScopeMappingEntry {
     pub parent: Option<String>,
     pub start_line: usize,
     pub end_line: usize,
+    /// La dernière ligne où une locale se voit (`ScopeInfo::visible_until_line`).
+    #[serde(default)]
+    pub visible_until_line: Option<usize>,
 }
 
 /// Mapping global: nom → liste de scopes avec ce nom

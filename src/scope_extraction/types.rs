@@ -436,6 +436,12 @@ pub struct ScopeInfo {
     /// La marque de test, posée par `parallel::parser_worker::finalize`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub test: Option<TestMark>,
+    /// **Jusqu'où une locale se voit** (8 novembre 2026) : pour une variable déclarée dans un bloc
+    /// (`const`, `let` : le bloc ; `var` : la fonction), la dernière ligne de ce bloc ; `None` pour
+    /// tout le reste. Le résolveur ne relie une mention à une locale que si elle tombe entre la
+    /// déclaration et cette ligne (tests/locales_js.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible_until_line: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]

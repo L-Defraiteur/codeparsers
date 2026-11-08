@@ -393,6 +393,7 @@ impl RustScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Namespace,
             scope_start_line: start_line,
@@ -535,6 +536,7 @@ impl RustScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name,
             r#type: ScopeInfoType::Class,
             scope_start_line: start_line,
@@ -632,6 +634,7 @@ impl RustScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Class,
             scope_start_line: start_line,
@@ -766,6 +769,7 @@ impl RustScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Interface,
             scope_start_line: start_line,
@@ -855,6 +859,7 @@ impl RustScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Enum,
             scope_start_line: start_line,
@@ -1020,6 +1025,7 @@ impl RustScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name,
             r#type: ScopeInfoType::Lambda,
             scope_start_line: start_line,
@@ -1089,6 +1095,7 @@ impl RustScopeExtractionParser {
         let imports = import_references.iter().filter_map(|r| seen.insert(r.source.clone()).then(|| r.source.clone())).collect();
         Some(ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Function,
             scope_start_line: start_line,
@@ -1264,6 +1271,7 @@ impl RustScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Function,
             scope_start_line: start_line,

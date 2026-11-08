@@ -619,6 +619,7 @@ impl BaseScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Class, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -685,6 +686,7 @@ impl BaseScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Interface, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -752,6 +754,7 @@ impl BaseScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Function, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -819,6 +822,7 @@ impl BaseScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Method, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -881,6 +885,7 @@ impl BaseScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Enum, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -941,6 +946,7 @@ impl BaseScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::TypeAlias, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -1001,6 +1007,7 @@ impl BaseScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             scope_start_byte: 0,
             scope_end_byte: 0,
             name, r#type: ScopeInfoType::Namespace, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -1081,6 +1088,7 @@ impl BaseScopeExtractionParser {
 
             scopes.push(ScopeInfo {
                 test: None,
+                visible_until_line: None,
                 scope_start_byte: 0,
                 scope_end_byte: 0,
                 name, r#type: ScopeInfoType::Function, scope_start_line: start_line, signature_start_line: start_line, signature_end_line, body_start_line, body_end_line, scope_end_line: end_line,
@@ -1172,6 +1180,7 @@ impl BaseScopeExtractionParser {
 
             scopes.push(ScopeInfo {
                 test: None,
+                visible_until_line: portee_d_une_locale(node, &variable_kind),
                 scope_start_byte: 0,
                 scope_end_byte: 0,
                 name, r#type: ScopeInfoType::Variable, scope_start_line: start_line, signature_start_line: start_line, signature_end_line: end_line, body_start_line: None, body_end_line: None, scope_end_line: end_line,
@@ -3635,6 +3644,7 @@ impl BaseScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name,
             r#type: ScopeInfoType::Module,
             scope_start_line: start_line,
@@ -3772,6 +3782,7 @@ impl BaseScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name,
             r#type: ScopeInfoType::Block,
             scope_start_line: start_line,
@@ -4083,6 +4094,7 @@ impl BaseScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name,
             r#type: ScopeInfoType::Block,
             scope_start_line: start_line,
@@ -4173,6 +4185,7 @@ impl BaseScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name,
             r#type: ScopeInfoType::Method,
             scope_start_line: start_line,
@@ -4254,6 +4267,7 @@ impl BaseScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name,
             r#type: ScopeInfoType::Lambda,
             scope_start_line: start_line,
@@ -4519,6 +4533,7 @@ impl BaseScopeExtractionParser {
 
         let signature = format!("{} {}", variable_kind, name);
         let content_dedented = self.dedent_content(&node_content);
+        let visible_until_line = portee_d_une_locale(decl_node, variable_kind);
 
         let mut reference_exclusions = HashSet::new();
         reference_exclusions.insert(name.clone());
@@ -4542,6 +4557,7 @@ impl BaseScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line,
             name,
             r#type: ScopeInfoType::Variable,
             scope_start_line: start_line,
@@ -5024,4 +5040,27 @@ pub fn uses_tsx_grammar(file_path: &str) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase());
     matches!(ext.as_deref(), Some("tsx" | "jsx" | "js" | "mjs" | "cjs"))
+}
+
+/// **Jusqu'où se voit une variable déclarée par `decl_node`** (8 novembre 2026) : `const` et `let`
+/// valent jusqu'à la fin de leur bloc (`{ … }`, le corps d'un `switch`, l'en-tête d'un `for`) ; `var`
+/// jusqu'à la fin de sa fonction. Au niveau du programme, `None` : une globale se voit partout.
+fn portee_d_une_locale(decl_node: SyntaxNode, variable_kind: &str) -> Option<usize> {
+    const FONCTIONS: &[&str] = &[
+        "function_declaration", "function_expression", "function", "arrow_function", "method_definition",
+        "generator_function_declaration", "generator_function",
+    ];
+    const BLOCS: &[&str] = &["statement_block", "switch_body", "for_statement", "for_in_statement", "class_static_block"];
+    let mut n = decl_node.parent();
+    while let Some(p) = n {
+        if p.kind() == "program" {
+            return None;
+        }
+        let ferme = if variable_kind == "var" { FONCTIONS.contains(&p.kind()) } else { BLOCS.contains(&p.kind()) || FONCTIONS.contains(&p.kind()) };
+        if ferme {
+            return Some(p.end_position().row + 1);
+        }
+        n = p.parent();
+    }
+    None
 }

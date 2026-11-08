@@ -347,6 +347,7 @@ impl CScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Function,
             scope_start_line: start_line,
@@ -511,6 +512,7 @@ impl CScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Class,
             scope_start_line: start_line,
@@ -648,6 +650,7 @@ impl CScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::Enum,
             scope_start_line: start_line,
@@ -843,6 +846,7 @@ impl CScopeExtractionParser {
 
         ScopeInfo {
             test: None,
+            visible_until_line: None,
             name: name.clone(),
             r#type: ScopeInfoType::TypeAlias,
             scope_start_line: start_line,

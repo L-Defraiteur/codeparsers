@@ -379,6 +379,7 @@ impl RelationshipResolver {
                     parent: scope.parent.clone(),
                     start_line: scope.scope_start_line,
                     end_line: scope.scope_end_line,
+                    visible_until_line: scope.visible_until_line,
                 };
 
                 // Add to name mapping
@@ -493,9 +494,18 @@ impl RelationshipResolver {
                 None
             };
             let soeur = surcharge.or(soeur);
-            let matched = fermeture.or(soeur).or_else(|| candidates.iter().find(|c| {
-                c.file == relative_path && type_lu.as_deref().is_none_or(|t| c.parent.as_deref() == Some(t))
-            }));
+            let matched = fermeture.or(soeur).or_else(|| {
+                let du_fichier = || candidates.iter().filter(|c| {
+                    c.file == relative_path && type_lu.as_deref().is_none_or(|t| c.parent.as_deref() == Some(t))
+                });
+                // Une locale ne se voit que de sa déclaration à la fin de son bloc : la plus proche
+                // qui couvre la mention (celle qui masque les autres) ; aucune ne la couvre, aucune
+                // locale — jamais l'homonyme d'un autre bloc (tests/locales_js.rs).
+                du_fichier()
+                    .filter(|c| c.visible_until_line.is_some_and(|fin| c.start_line <= r.line && r.line <= fin))
+                    .max_by_key(|c| c.start_line)
+                    .or_else(|| du_fichier().find(|c| c.visible_until_line.is_none()))
+            });
 
             if let Some(target) = matched {
                 // Un scope ne se consomme pas lui-même (le nom d'un
