@@ -1129,6 +1129,11 @@ impl BaseScopeExtractionParser {
                 if vk == "arrow_function" || vk == "function" || vk == "function_expression" {
                     continue;
                 }
+                // Une liaison `require(…)` est un import (extract_structured_imports), pas une
+                // variable : comme `import X from`, elle ne fait pas de scope (tests/require_js.rs).
+                if est_un_require(vn, content) {
+                    continue;
+                }
             }
 
             let name = {
@@ -2802,6 +2807,42 @@ impl BaseScopeExtractionParser {
     module_path: None,
                     source, imported: "*".to_string(), alias: Some(specifier),
                     kind: ImportReferenceKind::Dynamic, is_local: local, line: Some(line_num),
+                    reexport: false,
+                });
+            }
+        }
+
+        // **CommonJS** (8 novembre 2026) : `const X = require('./m')` est un import par défaut,
+        // `const { a, b: c } = require('./m')` des imports nommés (tests/require_js.rs). Sans eux, la
+        // liaison devenait une variable du fichier, qui captait les mentions du nom.
+        let require_re = cached_regex!(r#"(?:const|let|var)\s*(\{[^}]+\}|[A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)"#);
+        for cap in require_re.captures_iter(content) {
+            let specifier = cap[1].trim().to_string();
+            let source = cap[2].to_string();
+            let line_num = content[..cap.get(0).unwrap().start()].split('\n').count();
+            let local = is_local(&source);
+            if specifier.starts_with('{') {
+                let inner = specifier.trim_start_matches('{').trim_end_matches('}');
+                for entry in inner.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                    let (symbol, alias) = match entry.split_once(':') {
+                        Some((a, b)) => (a.trim(), Some(b.trim().to_string())),
+                        None => (entry, None),
+                    };
+                    if !symbol.is_empty() {
+                        push_ref(&mut refs, &mut seen, ImportReference {
+    module_path: None,
+                            source: source.clone(), imported: symbol.to_string(),
+                            alias, kind: ImportReferenceKind::Named,
+                            is_local: local, line: Some(line_num),
+                            reexport: false,
+                        });
+                    }
+                }
+            } else {
+                push_ref(&mut refs, &mut seen, ImportReference {
+    module_path: None,
+                    source, imported: "default".to_string(), alias: Some(specifier),
+                    kind: ImportReferenceKind::Default, is_local: local, line: Some(line_num),
                     reexport: false,
                 });
             }
@@ -5063,4 +5104,21 @@ fn portee_d_une_locale(decl_node: SyntaxNode, variable_kind: &str) -> Option<usi
         n = p.parent();
     }
     None
+}
+
+/// `require('…')` : un appel dont la fonction est l'identifiant `require` et l'unique argument une
+/// chaîne (8 novembre 2026).
+fn est_un_require(valeur: SyntaxNode, content: &str) -> bool {
+    if valeur.kind() != "call_expression" {
+        return false;
+    }
+    let Some(f) = valeur.child_by_field_name("function") else { return false };
+    if f.kind() != "identifier" || f.utf8_text(content.as_bytes()).ok() != Some("require") {
+        return false;
+    }
+    valeur.child_by_field_name("arguments").is_some_and(|a| {
+        let mut c = a.walk();
+        let args: Vec<_> = a.named_children(&mut c).collect();
+        args.len() == 1 && args[0].kind() == "string"
+    })
 }
