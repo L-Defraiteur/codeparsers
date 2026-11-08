@@ -9,6 +9,11 @@ use codeparsers::relationship_resolution::types::{RelationshipResolutionResult, 
 use std::collections::HashMap;
 
 fn resoudre(fichiers: &[(&str, &str)]) -> RelationshipResolutionResult {
+    resoudre_avec(fichiers, true)
+}
+
+/// `entre_fichiers = false` : les options de rag3weaver (« fichier seul »), qui fait le reste.
+fn resoudre_avec(fichiers: &[(&str, &str)], entre_fichiers: bool) -> RelationshipResolutionResult {
     let mut contenus = HashMap::new();
     let mut chemins = Vec::new();
     for (nom, source) in fichiers {
@@ -25,6 +30,7 @@ fn resoudre(fichiers: &[(&str, &str)]) -> RelationshipResolutionResult {
             resolver_options: Some(RelationshipResolverOptions {
                 include_file_level_refs: Some(false),
                 include_child_refs: Some(false),
+                resolve_cross_file: Some(entre_fichiers),
                 ..Default::default()
             }),
         })
@@ -243,4 +249,25 @@ export function lire() {
     let vers: Vec<_> = r.relationships.iter().filter(|x| format!("{:?}", x.r#type) == "CONSUMES" && x.from_name == "lire" && x.to_file == "collect.js" && x.to_name.starts_with("file_scope")).collect();
     assert!(!vers.is_empty(), "la mention va à la liaison : {:?}", r.relationships.iter().map(|x| (&x.from_name, &x.to_name)).collect::<Vec<_>>());
     assert!(vers.iter().all(|x| x.metadata.as_ref().is_some_and(|m| m.external_binding == Some(true))));
+}
+
+/// **En « fichier seul »** (les options de rag3weaver) : la liaison externe se pose quand même, et un
+/// import qui aboutit dans le projet est laissé au consommateur (aucune arête vers la zone).
+#[test]
+fn en_fichier_seul_seule_la_liaison_externe_se_pose() {
+    let appelant = r#""use strict";
+
+const reader = require("mtga-reader");
+const PreparedStatement = require("./prepared_statement.js");
+
+function lire() {
+  return reader.read(new PreparedStatement(1));
+}
+
+module.exports = lire;
+"#;
+    let r = resoudre_avec(&[("collect.js", appelant), ("prepared_statement.js", PREPARED)], false);
+    let vers: Vec<_> = r.relationships.iter().filter(|x| format!("{:?}", x.r#type) == "CONSUMES" && x.from_name == "lire" && x.to_name.starts_with("file_scope")).collect();
+    assert_eq!(vers.len(), 1, "une seule liaison, celle du module externe : {:?}", r.relationships.iter().map(|x| (&x.from_name, &x.to_name, x.metadata.as_ref().and_then(|m| m.external_binding))).collect::<Vec<_>>());
+    assert_eq!(vers[0].metadata.as_ref().and_then(|m| m.external_binding), Some(true));
 }

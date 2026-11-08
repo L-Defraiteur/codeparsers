@@ -220,6 +220,9 @@ impl RelationshipResolver {
             Some(p) => p.clone(),
             None => parsed_files.keys().cloned().collect(),
         };
+        // Les fichiers où un import relatif JS/TS peut aboutir : tout le projet quand on le dit.
+        let connus: Vec<String> = projet.iter().map(|f| self.get_relative_path(f)).collect();
+        self.known_files.extend(connus);
         self.project_modules = projet
             .iter()
             .flat_map(|f| {
@@ -266,9 +269,14 @@ impl RelationshipResolver {
                 // projet ; les références inconnues se résolvent quand même
                 // dans leur fichier.
                 if self.cross_file() {
-                    let import_result = self.resolve_import_references(scope, file_path, Some(analysis));
+                    let import_result = self.resolve_import_references(scope, file_path, Some(analysis), false);
                     relationships.extend(merge_by_target(import_result.0));
                     unresolved_references.extend(import_result.1);
+                } else if est_js(&self.get_relative_path(file_path)) {
+                    // « Fichier seul » en JS/TS : seules les liaisons — un import qui ne se résout pas
+                    // dans le projet garde une cible dans son fichier (tests/require_js.rs).
+                    let import_result = self.resolve_import_references(scope, file_path, Some(analysis), true);
+                    relationships.extend(merge_by_target(import_result.0));
                 }
 
                 // 2b. Fallback: resolve unknown references
@@ -848,6 +856,7 @@ impl RelationshipResolver {
         scope: &ScopeInfo,
         file_path: &str,
         file_analysis: Option<&ScopeFileAnalysis>,
+        liaisons_seulement: bool,
     ) -> (Vec<ResolvedRelationship>, Vec<UnresolvedReference>) {
         let mut resolved = Vec::new();
         let mut unresolved = Vec::new();
@@ -890,6 +899,10 @@ impl RelationshipResolver {
             }
             // Le fichier d'un import relatif JS/TS, s'il est dans l'arbre.
             let module = if js && imp.is_local { self.fichier_du_module(&relative_path, &imp.source) } else { None };
+            // « Fichier seul » : un import qui aboutit dans le projet est l'affaire du consommateur.
+            if liaisons_seulement && !externe && module.is_some() {
+                continue;
+            }
             // Find identifier references that use this import
             let used_name = imp.alias.as_deref().unwrap_or(&imp.imported);
             let matching_refs: Vec<&&crate::scope_extraction::types::IdentifierReference> = identifier_refs.iter()
