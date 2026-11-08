@@ -2815,7 +2815,8 @@ impl BaseScopeExtractionParser {
         // **CommonJS** (8 novembre 2026) : `const X = require('./m')` est un import par défaut,
         // `const { a, b: c } = require('./m')` des imports nommés (tests/require_js.rs). Sans eux, la
         // liaison devenait une variable du fichier, qui captait les mentions du nom.
-        let require_re = cached_regex!(r#"(?:const|let|var)\s*(\{[^}]+\}|[A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)"#);
+        // L'appel doit finir la déclaration : `require("os").cpus().length` n'est pas une liaison.
+        let require_re = cached_regex!(r#"(?m)(?:const|let|var)\s*(\{[^}]+\}|[A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)[ \t]*(?:;|,|$|//)"#);
         for cap in require_re.captures_iter(content) {
             let specifier = cap[1].trim().to_string();
             let source = cap[2].to_string();
@@ -3923,6 +3924,13 @@ impl BaseScopeExtractionParser {
                 _ => false,
             };
             if attribut {
+                continue;
+            }
+            // Une ligne d'import JS/TS (`import X from`, `const X = require('m')`) lie des noms, elle
+            // n'en utilise aucun : ses noms se suivent par l'import (tests/require_js.rs).
+            if matches!(self.language, SupportedLanguage::Typescript | SupportedLanguage::Javascript)
+                && (t.starts_with("import ") || t.starts_with("import{") || cached_regex!(r#"^(?:const|let|var)\s*(?:\{[^}]*\}|[A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*['"][^'"]+['"]\s*\)[ \t]*(?:;|,|$|//)"#).is_match(t))
+            {
                 continue;
             }
             if matches!(self.language, SupportedLanguage::Cpp | SupportedLanguage::C) {

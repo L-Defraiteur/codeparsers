@@ -71,6 +71,11 @@ pub struct RelationshipMetadata {
     /// consommateur le marque « nom » (décision du 11 octobre 2026).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by_name: Option<bool>,
+    /// **Liaison de module externe** (8 novembre 2026, c7) : l'import ne se résout pas (module hors de
+    /// l'arbre, fichier absent) et la mention s'arrête à la ligne qui lie le nom (`const x =
+    /// require("m")`). La cible est juste, mais ce n'est pas la définition ; rag3weaver le dit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_binding: Option<bool>,
     pub symbol: Option<String>,
     /// Les usages qui ont fait cette relation : un par occurrence, ou
     /// plusieurs quand le résolveur a fusionné les références d'un scope vers

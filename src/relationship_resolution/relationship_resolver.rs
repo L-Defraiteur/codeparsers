@@ -117,6 +117,23 @@ pub struct RelationshipResolver {
     return_types: HashMap<String, (String, Option<String>)>,
     /// uuid d'une fonction gabarit → les noms de ses paramètres, dans l'ordre.
     template_params: HashMap<String, Vec<String>>,
+    /// **L'export par défaut d'un fichier JS/TS** (8 novembre 2026) : `module.exports = X`,
+    /// `export default X` (le nom), `module.exports = new X()` (une instance : la zone qui l'écrit).
+    default_exports: HashMap<String, DefaultExport>,
+    /// Les zones de fichier (`file_scope_NN`) de chaque fichier : (début, fin, entrée), pour la
+    /// liaison de module externe.
+    zones: HashMap<String, Vec<(usize, usize, ScopeMappingEntry)>>,
+    /// Les fichiers connus, en chemins relatifs : où un import relatif peut aboutir.
+    known_files: HashSet<String>,
+}
+
+/// L'export par défaut d'un module JS/TS.
+#[derive(Debug, Clone)]
+enum DefaultExport {
+    /// Un nom (`module.exports = PreparedStatement`, `export default class X`).
+    Name(String),
+    /// Une instance (`module.exports = new FS()`) : la zone de fichier qui l'écrit.
+    Instance(ScopeMappingEntry),
 }
 
 impl RelationshipResolver {
@@ -133,6 +150,9 @@ impl RelationshipResolver {
             field_types_local: HashMap::new(),
             return_types: HashMap::new(),
             template_params: HashMap::new(),
+            default_exports: HashMap::new(),
+            zones: HashMap::new(),
+            known_files: HashSet::new(),
         }
     }
 
@@ -363,9 +383,13 @@ impl RelationshipResolver {
         self.field_types_local.clear();
         self.return_types.clear();
         self.template_params.clear();
+        self.default_exports.clear();
+        self.zones.clear();
+        self.known_files.clear();
 
         for (file_path, analysis) in parsed_files {
             let relative_path = self.get_relative_path(file_path);
+            self.known_files.insert(relative_path.clone());
 
             for scope in &analysis.scopes {
                 let uuid = self.generate_uuid(scope, &relative_path);
@@ -407,6 +431,15 @@ impl RelationshipResolver {
                     self.template_params.insert(uuid.clone(), g.iter().map(|p| p.name.clone()).collect());
                 }
 
+                if est_js(&relative_path) {
+                    if scope.r#type == ScopeInfoType::Module {
+                        self.zones.entry(relative_path.clone()).or_default().push((scope.scope_start_line, scope.scope_end_line, entry.clone()));
+                    }
+                    if let Some(d) = export_par_defaut(&scope.content, scope.r#type == ScopeInfoType::Module, &entry) {
+                        // Le premier lu l'emporte : un fichier n'a qu'un export par défaut.
+                        self.default_exports.entry(relative_path.clone()).or_insert(d);
+                    }
+                }
                 // Add to UUID mapping
                 self.uuid_mapping.insert(uuid, entry);
             }
@@ -844,14 +877,19 @@ impl RelationshipResolver {
 
         let source_uuid = self.generate_uuid(scope, &relative_path);
 
+        let js = est_js(&relative_path);
         for imp in &import_refs {
             // Un import externe (`use std::fmt`, `import os`) ne désigne rien
             // du projet : le chercher par nom parmi les scopes le reliait au
             // premier homonyme (la méthode `fmt` d'un `impl Display`).
             let racine = imp.source.split(['.', ':', '/']).find(|s| !s.is_empty()).unwrap_or("");
-            if !imp.is_local && !self.module_du_projet(file_path, racine) {
+            let externe = !imp.is_local && !self.module_du_projet(file_path, racine);
+            // En JS/TS, un externe garde une cible : la liaison (ci-dessous).
+            if externe && !js {
                 continue;
             }
+            // Le fichier d'un import relatif JS/TS, s'il est dans l'arbre.
+            let module = if js && imp.is_local { self.fichier_du_module(&relative_path, &imp.source) } else { None };
             // Find identifier references that use this import
             let used_name = imp.alias.as_deref().unwrap_or(&imp.imported);
             let matching_refs: Vec<&&crate::scope_extraction::types::IdentifierReference> = identifier_refs.iter()
@@ -866,27 +904,41 @@ impl RelationshipResolver {
             for r in &matching_refs {
                 // Find target scope in global mapping
                 let candidates = self.scope_mapping.get(&imp.imported).cloned().unwrap_or_default();
-                let mut target_entry: Option<&ScopeMappingEntry> = None;
+                let mut target_entry: Option<ScopeMappingEntry> = None;
+                let mut liaison = false;
 
-                // No resolver-based resolution for now — use fallback
-                if !candidates.is_empty() {
+                if js && (externe || imp.kind == crate::scope_extraction::types::ImportReferenceKind::Default || module.is_some()) {
+                    // **JS/TS** (8 novembre 2026, c7) : la mention va à ce que l'import résout ; la
+                    // liaison n'est une cible que s'il ne se résout pas (tests/require_js.rs).
+                    target_entry = if externe { None } else { self.cible_d_un_import_js(imp, module.as_deref(), &candidates) };
+                    if target_entry.is_none() {
+                        target_entry = self.zone_de(&relative_path, imp.line.unwrap_or(0)).cloned();
+                        liaison = target_entry.is_some();
+                    }
+                } else if !candidates.is_empty() {
+                    // No resolver-based resolution for now — use fallback
                     // Filter to different file (cross-file only)
                     let cross_file: Vec<&ScopeMappingEntry> = candidates.iter()
                         .filter(|c| c.file != relative_path)
                         .collect();
 
                     if cross_file.len() == 1 {
-                        target_entry = Some(cross_file[0]);
+                        target_entry = Some(cross_file[0].clone());
                     } else if cross_file.len() > 1 {
                         target_entry = cross_file.iter()
                             .find(|c| is_value_type(&c.r#type))
                             .copied()
-                            .or(Some(cross_file[0]));
+                            .or(Some(cross_file[0]))
+                            .cloned();
                     }
                 }
 
-                if let Some(target) = target_entry {
+                if let Some(target) = target_entry.as_ref() {
                     if is_impl_of(scope, &target.name) {
+                        continue;
+                    }
+                    // Une mention dans la zone même de sa liaison ne se consomme pas.
+                    if target.uuid == source_uuid {
                         continue;
                     }
                     let rel_type = detect_relationship_type_for_reference(scope, &target.name, &target.r#type, r);
@@ -906,6 +958,7 @@ impl RelationshipResolver {
                             via_import: Some(true),
                             import_path: Some(imp.source.clone()),
                             sites: vec![site_of(r)],
+                            external_binding: liaison.then_some(true),
                             ..Default::default()
                         }),
                     });
@@ -928,6 +981,56 @@ impl RelationshipResolver {
         }
 
         (resolved, unresolved)
+    }
+
+    /// Le fichier de l'arbre où aboutit un import relatif JS/TS (`./x`, `../y/z.js`, un dossier et son
+    /// `index`), ou `None`.
+    fn fichier_du_module(&self, importeur: &str, source: &str) -> Option<String> {
+        let dossier = Path::new(importeur).parent().unwrap_or(Path::new(""));
+        let mut parts: Vec<String> = Vec::new();
+        for c in dossier.join(source).components() {
+            match c {
+                std::path::Component::ParentDir => {
+                    parts.pop();
+                }
+                std::path::Component::Normal(x) => parts.push(x.to_string_lossy().to_string()),
+                _ => {}
+            }
+        }
+        let base = parts.join("/");
+        const EXTS: [&str; 8] = ["", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".mts"];
+        EXTS.iter()
+            .map(|e| format!("{base}{e}"))
+            .chain(["index.js", "index.ts", "index.tsx", "index.mjs"].iter().map(|i| format!("{base}/{i}")))
+            .find(|f| self.known_files.contains(f))
+    }
+
+    /// Ce qu'un import JS/TS résout dans l'arbre : l'export par défaut du module (son nom, ou la zone
+    /// qui écrit une instance), un nommé de ce module, sinon `None`.
+    fn cible_d_un_import_js(
+        &self,
+        imp: &crate::scope_extraction::types::ImportReference,
+        module: Option<&str>,
+        candidates: &[ScopeMappingEntry],
+    ) -> Option<ScopeMappingEntry> {
+        let module = module?;
+        let du_module = |nom: &str| -> Option<ScopeMappingEntry> {
+            let c = self.scope_mapping.get(nom)?;
+            let dans: Vec<&ScopeMappingEntry> = c.iter().filter(|e| e.file == module).collect();
+            dans.iter().find(|e| is_value_type(&e.r#type)).or(dans.first()).map(|e| (*e).clone())
+        };
+        if imp.kind == crate::scope_extraction::types::ImportReferenceKind::Default {
+            return match self.default_exports.get(module)? {
+                DefaultExport::Name(n) => du_module(n),
+                DefaultExport::Instance(z) => Some(z.clone()),
+            };
+        }
+        candidates.iter().find(|c| c.file == module && is_value_type(&c.r#type)).or_else(|| candidates.iter().find(|c| c.file == module)).cloned()
+    }
+
+    /// La zone de fichier (`file_scope_NN`) qui contient une ligne.
+    fn zone_de(&self, fichier: &str, ligne: usize) -> Option<&ScopeMappingEntry> {
+        self.zones.get(fichier)?.iter().find(|(d, f, _)| *d <= ligne && ligne <= *f).map(|(_, _, e)| e)
     }
 
     /// Resolve PARENT_OF relationship (parent -> child).
@@ -1685,4 +1788,25 @@ fn acces_de_champ(r: &IdentifierReference) -> bool {
         && q.starts_with(|c: char| c.is_lowercase() || c == '_');
     let chemin = r.context.as_deref().is_some_and(|ctx| ctx.contains(&format!("{q}::{}", r.identifier)));
     instance || (variable && !chemin && r.qualifier_type.is_none() && r.qualifier_deferred.is_none())
+}
+
+/// Un fichier JavaScript ou TypeScript.
+fn est_js(chemin: &str) -> bool {
+    [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"].iter().any(|e| chemin.ends_with(e))
+}
+
+/// L'export par défaut qu'écrit le texte d'un scope : `module.exports = new X(…)` (une instance, dans
+/// une zone de fichier), `module.exports = X`, `export default [class|function] X`.
+fn export_par_defaut(texte: &str, est_une_zone: bool, entree: &ScopeMappingEntry) -> Option<DefaultExport> {
+    if let Some(c) = regex::Regex::new(r"(?m)^\s*module\.exports\s*=\s*new\s+[A-Za-z_$][\w$]*").ok()?.captures(texte) {
+        let _ = c;
+        return est_une_zone.then(|| DefaultExport::Instance(entree.clone()));
+    }
+    if let Some(c) = regex::Regex::new(r"(?m)^\s*module\.exports\s*=\s*([A-Za-z_$][\w$]*)\s*;?\s*$").ok()?.captures(texte) {
+        return Some(DefaultExport::Name(c[1].to_string()));
+    }
+    if let Some(c) = regex::Regex::new(r"(?m)^\s*export\s+default\s+(?:abstract\s+)?(?:class|function\*?|async\s+function)?\s*([A-Za-z_$][\w$]*)").ok()?.captures(texte) {
+        return Some(DefaultExport::Name(c[1].to_string()));
+    }
+    None
 }
