@@ -999,23 +999,7 @@ impl RelationshipResolver {
     /// Le fichier de l'arbre où aboutit un import relatif JS/TS (`./x`, `../y/z.js`, un dossier et son
     /// `index`), ou `None`.
     fn fichier_du_module(&self, importeur: &str, source: &str) -> Option<String> {
-        let dossier = Path::new(importeur).parent().unwrap_or(Path::new(""));
-        let mut parts: Vec<String> = Vec::new();
-        for c in dossier.join(source).components() {
-            match c {
-                std::path::Component::ParentDir => {
-                    parts.pop();
-                }
-                std::path::Component::Normal(x) => parts.push(x.to_string_lossy().to_string()),
-                _ => {}
-            }
-        }
-        let base = parts.join("/");
-        const EXTS: [&str; 8] = ["", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".mts"];
-        EXTS.iter()
-            .map(|e| format!("{base}{e}"))
-            .chain(["index.js", "index.ts", "index.tsx", "index.mjs"].iter().map(|i| format!("{base}/{i}")))
-            .find(|f| self.known_files.contains(f))
+        resolve_relative_js_module(importeur, source, &self.known_files)
     }
 
     /// Ce qu'un import JS/TS résout dans l'arbre : l'export par défaut du module (son nom, ou la zone
@@ -1807,6 +1791,29 @@ fn acces_de_champ(r: &IdentifierReference) -> bool {
 fn est_js(chemin: &str) -> bool {
     [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"].iter().any(|e| chemin.ends_with(e))
 }
+
+/// Resolve a relative JS/TS import to an exact known project file.
+/// File-at-a-time consumers share the resolver's extension/index precedence
+/// rather than erasing extensions from module identities.
+pub fn resolve_relative_js_module(importeur: &str, source: &str, known_files: &HashSet<String>) -> Option<String> {
+        let dossier = Path::new(importeur).parent().unwrap_or(Path::new(""));
+        let mut parts: Vec<String> = Vec::new();
+        for c in dossier.join(source).components() {
+            match c {
+                std::path::Component::ParentDir => {
+                    parts.pop();
+                }
+                std::path::Component::Normal(x) => parts.push(x.to_string_lossy().to_string()),
+                _ => {}
+            }
+        }
+        let base = parts.join("/");
+        const EXTS: [&str; 8] = ["", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".mts"];
+        EXTS.iter()
+            .map(|e| format!("{base}{e}"))
+            .chain(["index.js", "index.ts", "index.tsx", "index.mjs"].iter().map(|i| format!("{base}/{i}")))
+            .find(|f| known_files.contains(f))
+    }
 
 /// L'export par défaut qu'écrit le texte d'un scope : `module.exports = new X(…)` (une instance, dans
 /// une zone de fichier), `module.exports = X`, `export default [class|function] X`.
