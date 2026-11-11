@@ -130,6 +130,7 @@ pub fn analyser_texte_brut(file_path: &str, content: &str) -> ScopeFileAnalysis 
         value: None,
     };
     let mut analyse = ScopeFileAnalysis {
+        default_export: None,
         file_path: file_path.to_string(),
         scopes: vec![scope],
         total_lines: lignes,
@@ -159,6 +160,10 @@ pub fn analyser_texte_brut(file_path: &str, content: &str) -> ScopeFileAnalysis 
 pub fn finalize(analysis: &mut ScopeFileAnalysis, content: &str) {
     analysis.content_hash = Some(crate::utils::hash::content_hash(content));
     analysis.octets = content.len();
+    analysis.default_export = if matches!(std::path::Path::new(&analysis.file_path).extension().and_then(|e| e.to_str()),
+        Some("js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts")) && !analysis.aucun_parseur {
+        extract_default_export(content)
+    } else { None };
     // line_starts[i] = offset du premier octet de la ligne i+1 (1-based)
     let mut line_starts: Vec<usize> = vec![0];
     for (i, b) in content.bytes().enumerate() {
@@ -505,4 +510,21 @@ fn parse_file_raw(task: &ParseFileTask) -> ScopeFileAnalysis {
             }
         }
     })
+}
+
+/// Read the file-level declaration once, before consumers lose export wrappers
+/// while selecting the text owned by each scope.
+fn extract_default_export(content: &str) -> Option<crate::scope_extraction::types::DefaultExportTarget> {
+    use crate::scope_extraction::types::DefaultExportTarget;
+    if let Some(c) = crate::cached_regex!(r"(?m)^\s*(module\.exports\s*=\s*new\s+[A-Za-z_$][\w$]*)").captures(content) {
+        let line = content[..c.get(1)?.start()].bytes().filter(|b| *b == b'\n').count() + 1;
+        return Some(DefaultExportTarget::Instance { line });
+    }
+    if let Some(c) = crate::cached_regex!(r"(?m)^\s*module\.exports\s*=\s*([A-Za-z_$][\w$]*)\s*;?\s*$").captures(content) {
+        return Some(DefaultExportTarget::Name(c[1].to_string()));
+    }
+    if let Some(c) = crate::cached_regex!(r"(?m)^\s*export\s+default\s+(?:abstract\s+)?(?:class|function\*?|async\s+function)?\s*([A-Za-z_$][\w$]*)").captures(content) {
+        return Some(DefaultExportTarget::Name(c[1].to_string()));
+    }
+    None
 }

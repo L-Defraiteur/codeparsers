@@ -444,8 +444,19 @@ pub struct ScopeInfo {
     pub visible_until_line: Option<usize>,
 }
 
+/// File-level export fact, independent of scope text and resolution mode.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DefaultExportTarget {
+    Name(String),
+    /// One-based source line writing an exported instance, not its class.
+    Instance { line: usize },
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ScopeFileAnalysis {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_export: Option<DefaultExportTarget>,
     pub file_path: String,
     pub scopes: Vec<ScopeInfo>,
     pub total_lines: usize,

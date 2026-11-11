@@ -150,6 +150,7 @@ impl GoScopeExtractionParser {
         let ast_issues = self.base.extract_ast_issues(root_node);
 
         ScopeFileAnalysis {
+            default_export: None,
             file_path: file_path.to_string(),
             scopes,
             total_lines: content.lines().count(),

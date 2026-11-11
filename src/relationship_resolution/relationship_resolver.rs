@@ -443,13 +443,21 @@ impl RelationshipResolver {
                     if scope.r#type == ScopeInfoType::Module {
                         self.zones.entry(relative_path.clone()).or_default().push((scope.scope_start_line, scope.scope_end_line, entry.clone()));
                     }
-                    if let Some(d) = export_par_defaut(&scope.content, scope.r#type == ScopeInfoType::Module, &entry) {
-                        // Le premier lu l'emporte : un fichier n'a qu'un export par défaut.
-                        self.default_exports.entry(relative_path.clone()).or_insert(d);
-                    }
                 }
                 // Add to UUID mapping
                 self.uuid_mapping.insert(uuid, entry);
+            }
+            use crate::scope_extraction::types::DefaultExportTarget;
+            let target = match analysis.default_export.as_ref() {
+                Some(DefaultExportTarget::Name(name)) => Some(DefaultExport::Name(name.clone())),
+                Some(DefaultExportTarget::Instance { line }) => self.zones.get(&relative_path)
+                    .and_then(|zones| zones.iter().filter(|(start, end, _)| start <= line && line <= end)
+                        .min_by_key(|(start, end, _)| end - start))
+                    .map(|(_, _, entry)| DefaultExport::Instance(entry.clone())),
+                None => None,
+            };
+            if let Some(target) = target {
+                self.default_exports.insert(relative_path, target);
             }
         }
 
@@ -1814,34 +1822,3 @@ pub fn resolve_relative_js_module(importeur: &str, source: &str, known_files: &H
             .chain(["index.js", "index.ts", "index.tsx", "index.mjs"].iter().map(|i| format!("{base}/{i}")))
             .find(|f| known_files.contains(f))
     }
-
-/// L'export par défaut qu'écrit le texte d'un scope : `module.exports = new X(…)` (une instance, dans
-/// une zone de fichier), `module.exports = X`, `export default [class|function] X`.
-fn export_par_defaut(texte: &str, est_une_zone: bool, entree: &ScopeMappingEntry) -> Option<DefaultExport> {
-    match default_export_target(texte, est_une_zone)? {
-        DefaultExportTarget::Name(name) => Some(DefaultExport::Name(name)),
-        DefaultExportTarget::Instance => Some(DefaultExport::Instance(entree.clone())),
-    }
-}
-
-/// Default export written by a scope. Consumers resolving files separately must
-/// preserve the distinction between a named definition and an exported instance.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DefaultExportTarget {
-    Name(String),
-    Instance,
-}
-
-pub fn default_export_target(texte: &str, est_une_zone: bool) -> Option<DefaultExportTarget> {
-    if let Some(c) = regex::Regex::new(r"(?m)^\s*module\.exports\s*=\s*new\s+[A-Za-z_$][\w$]*").ok()?.captures(texte) {
-        let _ = c;
-        return est_une_zone.then(|| DefaultExportTarget::Instance);
-    }
-    if let Some(c) = regex::Regex::new(r"(?m)^\s*module\.exports\s*=\s*([A-Za-z_$][\w$]*)\s*;?\s*$").ok()?.captures(texte) {
-        return Some(DefaultExportTarget::Name(c[1].to_string()));
-    }
-    if let Some(c) = regex::Regex::new(r"(?m)^\s*export\s+default\s+(?:abstract\s+)?(?:class|function\*?|async\s+function)?\s*([A-Za-z_$][\w$]*)").ok()?.captures(texte) {
-        return Some(DefaultExportTarget::Name(c[1].to_string()));
-    }
-    None
-}

@@ -271,3 +271,25 @@ module.exports = lire;
     assert_eq!(vers.len(), 1, "une seule liaison, celle du module externe : {:?}", r.relationships.iter().map(|x| (&x.from_name, &x.to_name, x.metadata.as_ref().and_then(|m| m.external_binding))).collect::<Vec<_>>());
     assert_eq!(vers[0].metadata.as_ref().and_then(|m| m.external_binding), Some(true));
 }
+
+#[test]
+fn un_export_default_class_se_suit_malgre_un_alias() {
+    let r = resoudre(&[
+        ("outil.js", "export default class Outil {\n  agir() {}\n}\n"),
+        ("app.js", "const Alias = require('./outil.js');\nfunction utiliser() {\n  return new Alias();\n}\n"),
+    ]);
+    assert!(r.relationships.iter().any(|r| r.from_name == "utiliser" && r.to_name == "Outil" && r.to_file == "outil.js"),
+        "l'export de fichier survit à la découpe des scopes : {:?}", r.relationships);
+}
+
+#[test]
+fn le_fait_d_export_est_optionnel_dans_une_ancienne_analyse_serialisee() {
+    use codeparsers::scope_extraction::types::{DefaultExportTarget, ScopeFileAnalysis};
+    let analysis = ScopeFileAnalysis { default_export: Some(DefaultExportTarget::Name("Outil".into())), ..Default::default() };
+    let mut json = serde_json::to_value(&analysis).unwrap();
+    let current: ScopeFileAnalysis = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(current.default_export, analysis.default_export);
+    json.as_object_mut().unwrap().remove("default_export");
+    let previous: ScopeFileAnalysis = serde_json::from_value(json).unwrap();
+    assert_eq!(previous.default_export, None);
+}

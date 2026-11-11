@@ -100,6 +100,7 @@ impl PythonScopeExtractionParser {
         let total_scopes = scopes.len();
 
         ScopeFileAnalysis {
+            default_export: None,
             file_path: file_path.to_string(),
             scopes,
             total_lines: content.split('\n').count(),
