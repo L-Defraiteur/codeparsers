@@ -516,15 +516,19 @@ fn parse_file_raw(task: &ParseFileTask) -> ScopeFileAnalysis {
 /// while selecting the text owned by each scope.
 fn extract_default_export(content: &str) -> Option<crate::scope_extraction::types::DefaultExportTarget> {
     use crate::scope_extraction::types::DefaultExportTarget;
-    if let Some(c) = crate::cached_regex!(r"(?m)^\s*(module\.exports\s*=\s*new\s+[A-Za-z_$][\w$]*)").captures(content) {
+    let mut targets = Vec::new();
+    for c in crate::cached_regex!(r"(?m)^\s*(module\.exports\s*=\s*new\s+[A-Za-z_$][\w$]*)").captures_iter(content) {
         let line = content[..c.get(1)?.start()].bytes().filter(|b| *b == b'\n').count() + 1;
-        return Some(DefaultExportTarget::Instance { line });
+        targets.push(DefaultExportTarget::Instance { line });
     }
-    if let Some(c) = crate::cached_regex!(r"(?m)^\s*module\.exports\s*=\s*([A-Za-z_$][\w$]*)\s*;?\s*$").captures(content) {
-        return Some(DefaultExportTarget::Name(c[1].to_string()));
+    for c in crate::cached_regex!(r"(?m)^\s*module\.exports\s*=\s*([A-Za-z_$][\w$]*)\s*;?\s*$").captures_iter(content) {
+        targets.push(DefaultExportTarget::Name(c[1].to_string()));
     }
-    if let Some(c) = crate::cached_regex!(r"(?m)^\s*export\s+default\s+(?:abstract\s+)?(?:class|function\*?|async\s+function)?\s*([A-Za-z_$][\w$]*)").captures(content) {
-        return Some(DefaultExportTarget::Name(c[1].to_string()));
+    for c in crate::cached_regex!(r"(?m)^\s*export\s+default\s+(?:abstract\s+)?(?:class|function\*?|async\s+function)?\s*([A-Za-z_$][\w$]*)").captures_iter(content) {
+        targets.push(DefaultExportTarget::Name(c[1].to_string()));
     }
-    None
+    match targets.as_slice() {
+        [target] => Some(target.clone()),
+        _ => None,
+    }
 }
