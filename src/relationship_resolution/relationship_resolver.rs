@@ -1811,15 +1811,30 @@ fn est_js(chemin: &str) -> bool {
 /// L'export par défaut qu'écrit le texte d'un scope : `module.exports = new X(…)` (une instance, dans
 /// une zone de fichier), `module.exports = X`, `export default [class|function] X`.
 fn export_par_defaut(texte: &str, est_une_zone: bool, entree: &ScopeMappingEntry) -> Option<DefaultExport> {
+    match default_export_target(texte, est_une_zone)? {
+        DefaultExportTarget::Name(name) => Some(DefaultExport::Name(name)),
+        DefaultExportTarget::Instance => Some(DefaultExport::Instance(entree.clone())),
+    }
+}
+
+/// Default export written by a scope. Consumers resolving files separately must
+/// preserve the distinction between a named definition and an exported instance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DefaultExportTarget {
+    Name(String),
+    Instance,
+}
+
+pub fn default_export_target(texte: &str, est_une_zone: bool) -> Option<DefaultExportTarget> {
     if let Some(c) = regex::Regex::new(r"(?m)^\s*module\.exports\s*=\s*new\s+[A-Za-z_$][\w$]*").ok()?.captures(texte) {
         let _ = c;
-        return est_une_zone.then(|| DefaultExport::Instance(entree.clone()));
+        return est_une_zone.then(|| DefaultExportTarget::Instance);
     }
     if let Some(c) = regex::Regex::new(r"(?m)^\s*module\.exports\s*=\s*([A-Za-z_$][\w$]*)\s*;?\s*$").ok()?.captures(texte) {
-        return Some(DefaultExport::Name(c[1].to_string()));
+        return Some(DefaultExportTarget::Name(c[1].to_string()));
     }
     if let Some(c) = regex::Regex::new(r"(?m)^\s*export\s+default\s+(?:abstract\s+)?(?:class|function\*?|async\s+function)?\s*([A-Za-z_$][\w$]*)").ok()?.captures(texte) {
-        return Some(DefaultExport::Name(c[1].to_string()));
+        return Some(DefaultExportTarget::Name(c[1].to_string()));
     }
     None
 }
