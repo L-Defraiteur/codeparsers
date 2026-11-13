@@ -3020,7 +3020,8 @@ impl BaseScopeExtractionParser {
 
             // Check if symbol appears in scope content as a whole word — hors
             // des commentaires et des chaînes, qui ne l'utilisent pas.
-            let code: &str = code_du_scope.get_or_insert_with(|| without_comments_and_strings(&scope.content));
+            let apostrophe = matches!(self.language, SupportedLanguage::Typescript | SupportedLanguage::Javascript);
+            let code: &str = code_du_scope.get_or_insert_with(|| without_comments_and_strings(&scope.content, apostrophe));
             let pattern = format!(r"\b{}\b", regex::escape(symbol_name));
             if let Ok(re) = regex::Regex::new(&pattern) {
                 if let Some(m) = re.find(code) {
@@ -4976,7 +4977,11 @@ fn in_own_initializer(noeud: tree_sitter::Node, nom: &str, content: &str) -> boo
 /// Le texte, commentaires (`//`, `/* */`) et chaînes (`"…"`, `'…'`, `` `…` ``)
 /// remplacés par des espaces — longueur et retours à la ligne gardés, pour
 /// que positions et lignes restent celles du texte.
-fn without_comments_and_strings(texte: &str) -> String {
+///
+/// `apostrophe_chaine` : l'apostrophe ouvre une chaîne (JavaScript, TypeScript) ; sinon elle n'ouvre
+/// qu'un caractère seul (`'x'`), et une durée de vie Rust (`'a`) reste du code. Sans elle, une chaîne
+/// JavaScript `'path'` gardait le nom importé (13 novembre 2026, tests/chaines_hors_references_js.rs).
+fn without_comments_and_strings(texte: &str, apostrophe_chaine: bool) -> String {
     let c: Vec<char> = texte.chars().collect();
     let mut out = String::with_capacity(texte.len());
     let mut i = 0;
@@ -4998,7 +5003,7 @@ fn without_comments_and_strings(texte: &str) -> String {
                 out.push_str("  ");
                 i += 2;
             }
-        } else if c[i] == '"' || c[i] == '`' || (c[i] == '\'' && c.get(i + 2) == Some(&'\'')) {
+        } else if c[i] == '"' || c[i] == '`' || (c[i] == '\'' && (apostrophe_chaine || c.get(i + 2) == Some(&'\''))) {
             let fin = c[i];
             out.push(' ');
             i += 1;
