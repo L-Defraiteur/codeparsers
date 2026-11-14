@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 const DEFAUTS: &[(&str, &str)] = &[
     ("javascript", include_str!("../../data/imports/javascript.toml")),
     ("python", include_str!("../../data/imports/python.toml")),
+    ("rust", include_str!("../../data/imports/rust.toml")),
 ];
 
 /// Une règle nommée : du code, choisi par les données.
@@ -73,6 +74,9 @@ pub struct NomDePaquet {
     /// `@scope/pkg`).
     #[serde(default)]
     pub garder_si_le_premier_commence_par: BTreeMap<String, usize>,
+    /// Un séparateur en tête ne compte pas (Rust : `::serde::X` est la crate `serde`).
+    #[serde(default)]
+    pub separateur_en_tete_ignore: bool,
     #[serde(default)]
     pub variantes: Vec<Variante>,
     #[serde(default)]
@@ -100,6 +104,7 @@ impl RegleDeLangue {
         if sep.is_empty() {
             return vec![s.to_string()];
         }
+        let s = if self.nom_de_paquet.separateur_en_tete_ignore { s.strip_prefix(sep).unwrap_or(s) } else { s };
         s.split(sep).map(String::from).collect()
     }
 

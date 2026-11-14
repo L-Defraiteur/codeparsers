@@ -1,5 +1,8 @@
 # Les règles d'import de JavaScript et de TypeScript (codeparsers, `import_resolution::regles`).
 # Un fichier `javascript.toml` dans `import_rules_dir` remplace ce fichier entier.
+# Provenance : `require('module').builtinModules` de Node 22.23.3, relu le 14 nov. 2026 (68 entrées,
+# 56 noms au premier segment). À relire à chaque version de Node :
+# `node -e 'console.log(require("module").builtinModules)'`.
 langue = "javascript"
 extensions = ["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts"]
 

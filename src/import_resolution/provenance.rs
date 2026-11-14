@@ -7,7 +7,6 @@
 
 use crate::import_resolution::c_import_resolver::{CPP_STDLIB_HEADERS, C_STDLIB_HEADERS};
 use crate::import_resolution::c_sharp_import_resolver::DOTNET_BCL_NAMESPACES;
-use crate::import_resolution::rust_import_resolver::RUST_STD_CRATES;
 pub use crate::import_resolution::regles::Regles;
 
 /// La provenance d'un nom importé.
@@ -49,7 +48,6 @@ pub fn est_builtin_selon(regles: &Regles, fichier: &str, source: &str) -> bool {
     let ext = fichier.rsplit('.').next().unwrap_or("");
     let s = source.trim();
     match ext {
-        "rs" => s.split("::").next().is_some_and(|r| RUST_STD_CRATES.contains(&r)),
         "c" | "h" => C_STDLIB_HEADERS.contains(&s),
         "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => CPP_STDLIB_HEADERS.contains(&s) || C_STDLIB_HEADERS.contains(&s),
         // Go : la règle de la chaîne d'outils — un chemin dont le premier élément n'a pas de point
@@ -77,7 +75,6 @@ pub fn nom_de_paquet_selon(regles: &Regles, fichier: &str, source: &str) -> Stri
     let ext = fichier.rsplit('.').next().unwrap_or("");
     let s = source.trim();
     let tete = match ext {
-        "rs" => s.split("::").next().unwrap_or(s).to_string(),
         "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => s.split('/').next().unwrap_or(s).trim_end_matches(".h").to_string(),
         _ => s.to_string(),
     };

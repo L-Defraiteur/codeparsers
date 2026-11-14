@@ -4,6 +4,9 @@
 # et quel nom de paquet il désigne (à comparer aux manifestes du dépôt). Il est compilé dans codeparsers
 # comme défaut ; un fichier du même nom dans le dossier `import_rules_dir` le remplace en entier, sans
 # recompiler (docs/codeparsers/14-11-2026/02-du-nom-importe-au-paquet.md, rag3db).
+#
+# Provenance : `sys.stdlib_module_names` de Python 3.14.9, relu le 14 nov. 2026 (297 noms).
+# À relire à chaque version de Python : `python3 -c 'import sys; print(sorted(sys.stdlib_module_names))'`.
 
 langue = "python"
 extensions = ["py", "pyi"]
