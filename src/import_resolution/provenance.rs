@@ -103,13 +103,59 @@ pub fn est_builtin(fichier: &str, source: &str) -> bool {
     }
 }
 
-/// La provenance tranchée à l'analyse : `project` pour un import local, `builtin` pour la bibliothèque
-/// standard, sinon `inconnue` (une dépendance ne se dit qu'avec les manifestes).
-pub fn provenance_a_l_analyse(fichier: &str, source: &str, est_local: bool) -> Provenance {
+
+/// Le nom de paquet qu'un import nomme, comparable à un nom de manifeste : la crate (`serde` de
+/// `serde::Serialize`), le paquet npm (`lodash` de `lodash/fp`, `@scope/pkg` de `@scope/pkg/sub`), le
+/// module racine Python (`requests` de `requests.adapters`), le premier dossier d'un en-tête C/C++
+/// (`fmt` de `fmt/format.h`), le chemin de module Go entier.
+pub fn nom_de_paquet(fichier: &str, source: &str) -> String {
+    let ext = fichier.rsplit('.').next().unwrap_or("");
+    let s = source.trim();
+    let tete = match ext {
+        "rs" => s.split("::").next().unwrap_or(s).to_string(),
+        "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts" => {
+            let mut parts = s.split('/');
+            match (parts.next(), parts.next()) {
+                (Some(a), Some(b)) if a.starts_with('@') => format!("{a}/{b}"),
+                (Some(a), _) => a.to_string(),
+                _ => s.to_string(),
+            }
+        }
+        "py" | "pyi" => s.split('.').next().unwrap_or(s).to_string(),
+        "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => s.split('/').next().unwrap_or(s).trim_end_matches(".h").to_string(),
+        _ => s.to_string(),
+    };
+    normaliser(&tete)
+}
+
+/// Un nom de paquet comparable : minuscules, `-` et `_` confondus (`serde-json` et `serde_json`,
+/// `PyYAML` et `pyyaml`).
+pub fn normaliser(nom: &str) -> String {
+    nom.trim().to_lowercase().replace('-', "_")
+}
+
+/// La provenance d'un import, avec ce que les manifestes du dépôt disent (`dependances`,
+/// `paquets_du_projet`, des noms déjà normalisés) : `project` pour un import local ou un paquet du
+/// dépôt, `builtin` pour la bibliothèque standard, `dependency` pour une dépendance déclarée,
+/// sinon `inconnue`.
+pub fn provenance_d_un_import(
+    fichier: &str,
+    source: &str,
+    est_local: bool,
+    dependances: &std::collections::HashSet<String>,
+    paquets_du_projet: &std::collections::HashSet<String>,
+) -> Provenance {
     if est_local {
+        return Provenance::Project;
+    }
+    if est_builtin(fichier, source) {
+        return Provenance::Builtin;
+    }
+    let nom = nom_de_paquet(fichier, source);
+    if paquets_du_projet.contains(&nom) {
         Provenance::Project
-    } else if est_builtin(fichier, source) {
-        Provenance::Builtin
+    } else if dependances.contains(&nom) {
+        Provenance::Dependency
     } else {
         Provenance::Unknown
     }
