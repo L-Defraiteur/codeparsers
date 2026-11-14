@@ -386,6 +386,7 @@ impl GoScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -651,6 +652,7 @@ impl GoScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -795,6 +797,7 @@ impl GoScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),

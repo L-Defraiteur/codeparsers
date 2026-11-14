@@ -83,6 +83,7 @@ pub fn analyser_texte_brut(file_path: &str, content: &str) -> ScopeFileAnalysis 
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| file_path.to_string());
     let scope = ScopeInfo {
+        parent_path: None,
         test: None,
         visible_until_line: None,
         // Un scope sans nom ne se cite pas : celui-ci porte son fichier et son

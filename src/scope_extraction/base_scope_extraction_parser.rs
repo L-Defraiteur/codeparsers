@@ -619,6 +619,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             scope_start_byte: 0,
@@ -688,6 +689,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             scope_start_byte: 0,
@@ -758,6 +760,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             scope_start_byte: 0,
@@ -828,6 +831,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             scope_start_byte: 0,
@@ -893,6 +897,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             scope_start_byte: 0,
@@ -956,6 +961,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             scope_start_byte: 0,
@@ -1019,6 +1025,7 @@ impl BaseScopeExtractionParser {
         let docstring = self.extract_js_doc(node, content);
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             scope_start_byte: 0,
@@ -1102,6 +1109,7 @@ impl BaseScopeExtractionParser {
             let docstring = self.extract_js_doc(node, content);
 
             scopes.push(ScopeInfo {
+                parent_path: None,
                 test: None,
                 visible_until_line: None,
                 scope_start_byte: 0,
@@ -1201,6 +1209,7 @@ impl BaseScopeExtractionParser {
             let value = value_node.map(|vn| self.get_node_text(Some(vn), content));
 
             scopes.push(ScopeInfo {
+                parent_path: None,
                 test: None,
                 visible_until_line: portee_d_une_locale(node, &variable_kind),
                 scope_start_byte: 0,
@@ -3705,6 +3714,7 @@ impl BaseScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name,
@@ -3845,6 +3855,7 @@ impl BaseScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name,
@@ -4166,6 +4177,7 @@ impl BaseScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name,
@@ -4259,6 +4271,7 @@ impl BaseScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name,
@@ -4343,6 +4356,7 @@ impl BaseScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name,
@@ -4635,6 +4649,7 @@ impl BaseScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line,
             name,

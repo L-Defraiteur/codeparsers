@@ -333,6 +333,7 @@ impl CSharpScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -442,6 +443,7 @@ impl CSharpScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -556,6 +558,7 @@ impl CSharpScopeExtractionParser {
         mods.push("record".to_string());
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -662,6 +665,7 @@ impl CSharpScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -749,6 +753,7 @@ impl CSharpScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -903,6 +908,7 @@ impl CSharpScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name,
@@ -1011,6 +1017,7 @@ impl CSharpScopeExtractionParser {
         mods.push("constructor".to_string());
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: "constructor".to_string(),

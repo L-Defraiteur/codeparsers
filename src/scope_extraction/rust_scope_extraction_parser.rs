@@ -226,6 +226,7 @@ impl RustScopeExtractionParser {
                 scope.modifiers.push("impl".to_string());
             }
             let scope_name = scope.name.clone();
+            let chemin_du_type = scope.parent_path.clone();
             // **Une méthode d'un `impl Trait for Type`** le dit (`trait_impl`) : à nom et type
             // égaux, la méthode propre du type passe avant celle du trait (Rust), et un
             // consommateur ne peut le savoir que par elle (19 octobre 2026).
@@ -240,6 +241,7 @@ impl RustScopeExtractionParser {
                     if child.kind() == "function_item" {
                         let mut method_scope = self.extract_rust_method(child, content, depth + 1, Some(scope_name.clone()), file_imports);
                         method_scope.file_path = file_path.to_string();
+                        method_scope.parent_path = chemin_du_type.clone();
                         if de_trait && !method_scope.modifiers.iter().any(|m| m == "trait_impl") {
                             method_scope.modifiers.push("trait_impl".to_string());
                         }
@@ -393,6 +395,7 @@ impl RustScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -470,6 +473,12 @@ impl RustScopeExtractionParser {
             name = "Unknown".to_string();
             signature = "impl Unknown".to_string();
         }
+        // **Le bloc porte le nom court du type** (14 novembre 2026, la navigation members) : sans arguments ni
+        // chemin (`crate::a::Foo<U>` → `Foo`), comme la struct ; le chemin écrit va à `parent_path` quand il en
+        // a un. La signature garde la forme écrite.
+        let ecrit = name.split('<').next().unwrap_or(&name).trim().to_string();
+        let chemin_du_type = ecrit.contains("::").then(|| ecrit.clone());
+        let name = ecrit.rsplit("::").next().unwrap_or(&ecrit).trim().to_string();
 
         let start_line = node.start_position().row + 1;
         let end_line = node.end_position().row + 1;
@@ -541,6 +550,8 @@ impl RustScopeExtractionParser {
         };
 
         ScopeInfo {
+            // Pour un bloc `impl`, le chemin écrit du type qu'il prolonge.
+            parent_path: chemin_du_type,
             test: None,
             visible_until_line: None,
             name,
@@ -641,6 +652,7 @@ impl RustScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -778,6 +790,7 @@ impl RustScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -870,6 +883,7 @@ impl RustScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -1038,6 +1052,7 @@ impl RustScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name,
@@ -1110,6 +1125,7 @@ impl RustScopeExtractionParser {
         let mut seen = HashSet::new();
         let imports = import_references.iter().filter_map(|r| seen.insert(r.source.clone()).then(|| r.source.clone())).collect();
         Some(ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -1288,6 +1304,7 @@ impl RustScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),

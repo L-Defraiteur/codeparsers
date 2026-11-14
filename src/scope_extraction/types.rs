@@ -439,6 +439,11 @@ pub struct ScopeInfo {
     pub complexity: usize,
     pub lines_of_code: usize,
     pub parent: Option<String>,
+    /// **Le chemin qualifié du propriétaire, quand le code l'écrit** (C++ `kz::Foo` pour `kz::Foo::qux`,
+    /// Rust `crate::a::Foo` pour `impl Trait for crate::a::Foo`) ; `None` sinon, jamais deviné. `parent`
+    /// reste le nom court, sans chemin ni arguments de type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_path: Option<String>,
     pub depth: usize,
     pub docstring: Option<String>,
     pub decorators: Option<Vec<String>>,

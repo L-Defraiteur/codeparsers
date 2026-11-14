@@ -494,15 +494,19 @@ impl CppScopeExtractionParser {
             // Detect out-of-class methods via qualified_identifier (e.g. Engine::start)
             // `Engine::start`, `kz::Engine::start`, `Engine<T>::start`,
             // `Engine::~Engine` : le parent est le dernier élément du chemin.
-            let qualified_parent = declarator.and_then(|d| {
+            let chemin_qualifie = declarator.and_then(|d| {
                 let mut cursor = d.walk();
                 let qi = d.children(&mut cursor).find(|c| c.kind() == "qualified_identifier")?;
-                self.qualified_parts(qi, content).and_then(|(chemin, _)| chemin.last().cloned())
+                self.qualified_parts(qi, content).map(|(chemin, _)| chemin)
             });
+            let qualified_parent = chemin_qualifie.as_ref().and_then(|c| c.last().cloned());
+            // Le chemin écrit du propriétaire, quand il a plus d'un élément (`kz::Foo` pour `kz::Foo::qux`).
+            let parent_path = chemin_qualifie.filter(|c| c.len() > 1).map(|c| c.join("::"));
 
             let effective_parent = qualified_parent.or_else(|| conversion.and_then(|(_, p)| p)).or(parent);
             let mut scope = self.extract_cpp_method(node, content, depth, effective_parent, file_imports);
             scope.r#type = ScopeInfoType::Function;
+            scope.parent_path = parent_path;
             scope.name = name;
             scope.file_path = file_path.to_string();
             let func_name = scope.name.clone();
@@ -606,6 +610,7 @@ impl CppScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -718,6 +723,7 @@ impl CppScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -1046,6 +1052,7 @@ impl CppScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),
@@ -1206,6 +1213,7 @@ impl CppScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name,
@@ -1351,6 +1359,7 @@ impl CppScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name: name.clone(),

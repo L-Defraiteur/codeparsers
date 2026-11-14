@@ -306,6 +306,7 @@ impl PythonScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             scope_start_byte: 0,
@@ -397,6 +398,7 @@ impl PythonScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             scope_start_byte: 0,
@@ -475,6 +477,7 @@ impl PythonScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         Some(ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             scope_start_byte: 0,
@@ -552,6 +555,7 @@ impl PythonScopeExtractionParser {
         let lines_of_code = end_line - start_line + 1;
 
         Some(ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             scope_start_byte: 0,
@@ -623,6 +627,7 @@ impl PythonScopeExtractionParser {
         };
 
         ScopeInfo {
+            parent_path: None,
             test: None,
             visible_until_line: None,
             name, r#type: ScopeInfoType::Lambda,
