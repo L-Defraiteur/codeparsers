@@ -159,6 +159,13 @@ pub struct RelationshipResolverOptions {
     /// un module du projet analysé dans un autre paquet n'est pas une
     /// bibliothèque externe. Sans elle, seuls les fichiers analysés comptent.
     pub project_files: Option<Vec<String>>,
+    /// **Les dépendances déclarées par les manifestes du dépôt** (Cargo.lock, package.json,
+    /// pyproject.toml, requirements.txt, vcpkg.json), que lit le consommateur (rag3weaver) : un import
+    /// de l'un de ces noms est `dependency` (14 novembre 2026). Sans elle, `inconnue`.
+    pub declared_dependencies: Option<Vec<String>>,
+    /// **Les paquets du dépôt lui-même** (les crates d'un workspace Cargo, les paquets d'un workspace
+    /// npm) : un import de l'un de ces noms est `project`, même écrit comme une dépendance.
+    pub project_packages: Option<Vec<String>>,
 }
 
 /// Référence non résolue (pour debug/amélioration)

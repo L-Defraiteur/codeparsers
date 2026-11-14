@@ -125,6 +125,9 @@ pub struct RelationshipResolver {
     zones: HashMap<String, Vec<(usize, usize, ScopeMappingEntry)>>,
     /// Les fichiers connus, en chemins relatifs : où un import relatif peut aboutir.
     known_files: HashSet<String>,
+    /// Les dépendances déclarées et les paquets du dépôt (options), normalisés.
+    dependances: HashSet<String>,
+    paquets_du_projet: HashSet<String>,
 }
 
 /// L'export par défaut d'un module JS/TS.
@@ -153,6 +156,8 @@ impl RelationshipResolver {
             default_exports: HashMap::new(),
             zones: HashMap::new(),
             known_files: HashSet::new(),
+            dependances: HashSet::new(),
+            paquets_du_projet: HashSet::new(),
         }
     }
 
@@ -220,6 +225,9 @@ impl RelationshipResolver {
             Some(p) => p.clone(),
             None => parsed_files.keys().cloned().collect(),
         };
+        use crate::import_resolution::provenance::normaliser;
+        self.dependances = self.options.declared_dependencies.iter().flatten().map(|n| normaliser(n)).collect();
+        self.paquets_du_projet = self.options.project_packages.iter().flatten().map(|n| normaliser(n)).collect();
         // Les fichiers où un import relatif JS/TS peut aboutir : tout le projet quand on le dit.
         let connus: Vec<String> = projet.iter().map(|f| self.get_relative_path(f)).collect();
         self.known_files.extend(connus);
@@ -990,7 +998,7 @@ impl RelationshipResolver {
                             provenances: if !liaison {
                                 Vec::new()
                             } else if externe {
-                                vec![crate::import_resolution::provenance::provenance_a_l_analyse(&relative_path, &imp.source, false)]
+                                vec![crate::import_resolution::provenance::provenance_d_un_import(&relative_path, &imp.source, false, &self.dependances, &self.paquets_du_projet)]
                             } else {
                                 vec![crate::import_resolution::provenance::Provenance::Project]
                             },
@@ -1216,7 +1224,7 @@ impl RelationshipResolver {
                     import_path: Some(imp.source.clone()),
                     sites: vec![site],
                     // Une bibliothèque n'est jamais du projet (les imports locaux sont sautés plus haut).
-                    provenances: vec![crate::import_resolution::provenance::provenance_a_l_analyse(&relative_path, &imp.source, false)],
+                    provenances: vec![crate::import_resolution::provenance::provenance_d_un_import(&relative_path, &imp.source, false, &self.dependances, &self.paquets_du_projet)],
                     ..Default::default()
                 }),
             });
