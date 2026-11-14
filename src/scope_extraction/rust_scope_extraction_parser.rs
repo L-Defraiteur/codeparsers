@@ -511,7 +511,10 @@ impl RustScopeExtractionParser {
 
         // For trait implementations, add an identifier reference to the trait
         if let Some(ref tn) = trait_name {
-            let base_trait_name = tn.split('<').next().unwrap_or(tn).trim().to_string();
+            // Le nom du trait sans ses arguments ni son chemin : `crate::outils::Outil<T>` → `Outil`, le nom
+            // du scope que la relation cherche (le chemin reste dans `context` et la signature).
+            let sans_arguments = tn.split('<').next().unwrap_or(tn).trim();
+            let base_trait_name = sans_arguments.rsplit("::").next().unwrap_or(sans_arguments).trim().to_string();
             identifier_references.push(IdentifierReference {
                 usage: Some(crate::scope_extraction::types::UsageKind::Inheritance),
                 qualifier_type: None,

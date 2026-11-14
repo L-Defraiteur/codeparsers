@@ -1664,7 +1664,8 @@ pub fn detect_relationship_type_by_name(
 
             // Rust only: impl Trait for Struct
             if file.ends_with(".rs")
-                && cached_regex!(r"impl\s+\w+\s+for").is_match(sig)
+                // `impl Trait for T`, `impl<T> Trait for X<T>`, `impl crate::a::Trait for T`, `impl Conv<u8> for T`.
+                && cached_regex!(r"\bimpl\b.*\bfor\b").is_match(sig)
             {
                 return RelationshipType::IMPLEMENTS;
             }
