@@ -65,3 +65,21 @@ fn rust_une_dependance_de_sa_langue_et_pas_d_une_autre() {
     // Le même nom déclaré pour Python ne fait pas d'un import Rust une dépendance.
     assert_eq!(bibliotheque_rust(HashMap::from([("python".to_string(), vec!["serde-json".to_string()])])), Some(Provenance::Unknown));
 }
+
+#[test]
+fn csharp_un_espace_de_noms_trouve_son_paquet_nuget_au_plus_long_prefixe() {
+    let r = Regles::charger(None);
+    let vide = HashSet::new();
+    // Les tables par langue portent des noms normalisés par les variantes de la langue (le résolveur le fait).
+    let cs = r.de_langue("csharp").expect("les règles de C#");
+    let normes = |noms: &[&str]| noms.iter().map(|n| cs.normaliser(n)).collect::<HashSet<String>>();
+    let par_langue = HashMap::from([("csharp".to_string(), (normes(&["Newtonsoft.Json", "Serilog", "Serilog.Sinks.Console"]), normes(&["Mon.Outil"])))]);
+    let d = Declares { dependances: &vide, paquets_du_projet: &vide, par_langue: Some(&par_langue) };
+    let p = |source: &str| provenance_d_un_import_declare(&r, "a.cs", source, false, &d);
+    // `using Newtonsoft.Json.Linq;` vient du paquet Newtonsoft.Json : l'ancienne règle comparait l'espace entier.
+    assert_eq!(p("Newtonsoft.Json.Linq"), Provenance::Dependency);
+    assert_eq!(p("Serilog.Sinks.Console.Themes"), Provenance::Dependency);
+    assert_eq!(p("Newtonsoft.Jsonx"), Provenance::Unknown, "le préfixe se coupe au point");
+    assert_eq!(p("Mon.Outil.Interne"), Provenance::Project);
+    assert_eq!(p("System.Text.Json"), Provenance::Builtin);
+}

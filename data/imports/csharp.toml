@@ -206,4 +206,8 @@ noms = [
 
 [nom_de_paquet]
 separateur = "."
+# Le paquet NuGet d'un `using` est le plus long nom déclaré qui en est l'espace ou un préfixe coupé au
+# point (`Newtonsoft.Json.Linq` → le paquet `Newtonsoft.Json`), comme un module Go.
+regle = "plus_long_prefixe_declare"
+# Les identifiants NuGet ignorent la casse.
 variantes = ["tiret_souligne", "casse"]
