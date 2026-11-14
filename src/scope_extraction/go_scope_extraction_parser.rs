@@ -739,7 +739,8 @@ impl GoScopeExtractionParser {
                     .find(|c| c.kind() == "identifier");
                 let mut inner_cursor = param_decl.walk();
                 let rec_type = param_decl.children(&mut inner_cursor)
-                    .find(|c| c.kind() == "type_identifier" || c.kind() == "pointer_type");
+                    // `T`, `*T`, et générique : `T[K]` (`generic_type`), `*T[K]` (un `pointer_type` qui le contient).
+                    .find(|c| matches!(c.kind(), "type_identifier" | "pointer_type" | "generic_type"));
                 receiver_name = rec_name.map(|n| self.base.get_node_text(Some(n), content)).unwrap_or_default();
                 receiver_type = rec_type.map(|n| self.base.get_node_text(Some(n), content)).unwrap_or_default();
             }
@@ -770,7 +771,9 @@ impl GoScopeExtractionParser {
             if receiver_type.is_empty() {
                 None
             } else {
-                Some(receiver_type.trim_start_matches('*').to_string())
+                // Le type sans `*` ni arguments de type : `*Pile[K]` → `Pile` (la navigation lit ce nom).
+                let nu = receiver_type.trim_start_matches('*');
+                Some(nu.split('[').next().unwrap_or(nu).trim().to_string())
             }
         });
 
