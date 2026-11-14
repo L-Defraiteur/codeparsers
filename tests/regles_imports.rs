@@ -177,5 +177,9 @@ fn csharp_un_espace_de_noms_couvre_ses_enfants() {
     assert!(est_builtin_selon(&r, "a.cs", "Microsoft.Extensions.Logging.Abstractions"));
     assert!(!est_builtin_selon(&r, "a.cs", "Microsoft.Extensionsx"), "le préfixe se coupe au point");
     assert!(!est_builtin_selon(&r, "a.cs", "Newtonsoft.Json"));
+    // Des paquets NuGet, hors du navigateur d'API .NET : l'ancienne liste les comptait comme builtin.
+    assert!(!est_builtin_selon(&r, "a.cs", "Microsoft.EntityFrameworkCore"), "Entity Framework Core est un paquet");
+    assert!(!est_builtin_selon(&r, "a.cs", "Microsoft.AspNetCore.Mvc"), "ASP.NET Core est un paquet");
+    assert!(est_builtin_selon(&r, "a.cs", "Microsoft.VisualBasic.FileIO"));
     assert_eq!(r.origines.get("csharp").map(String::as_str), Some("défaut"), "{:?}", r.origines);
 }
