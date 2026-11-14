@@ -7,11 +7,6 @@ use crate::import_resolution::types::ImportType;
 use crate::import_resolution::types::ResolvedImport;
 use crate::import_resolution::types::RustConfig;
 
-pub const RUST_STD_CRATES: &[&str] = &[
-    "std", "core", "alloc", "proc_macro",
-    "test",
-];
-
 pub const RUST_COMMON_CRATES: &[&str] = &[
     "serde", "serde_json", "tokio", "async_std",
     "futures", "log", "env_logger", "tracing",
@@ -142,7 +137,7 @@ impl RustImportResolver {
         let first_segment = segments.first().unwrap_or(&"");
 
         let is_relative = ["crate", "self", "super"].contains(first_segment);
-        let is_stdlib = RUST_STD_CRATES.contains(first_segment);
+        let is_stdlib = est_std(first_segment);
 
         let crate_name = if *first_segment == "crate" {
             if self.config.crate_name.is_empty() {
@@ -218,8 +213,7 @@ impl RustImportResolver {
     /// Check if a crate is a standard library crate (implements BaseImportResolver)
 
     pub fn is_builtin_module(&self, module_name: &str) -> bool {
-        let crate_name = module_name.split("::").next().unwrap_or("");
-        RUST_STD_CRATES.contains(&crate_name)
+        est_std(module_name)
     }
 
     /// Resolve an import to an absolute file path (implements BaseImportResolver)
@@ -336,4 +330,9 @@ impl RustImportResolver {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| absolute_path.to_string())
     }
+}
+
+/// Une crate de la distribution, d'après les règles livrées (`data/imports/rust.toml`).
+fn est_std(chemin: &str) -> bool {
+    crate::import_resolution::regles::Regles::partagees(None).de_fichier("x.rs").is_some_and(|r| r.est_builtin(chemin))
 }

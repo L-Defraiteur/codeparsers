@@ -122,3 +122,17 @@ fn javascript_un_dossier_remplace_la_langue_sans_toucher_python() {
     assert!(est_builtin_selon(&r, "a.py", "os"), "python garde ses règles livrées");
     assert_eq!(r.origines["python"], "défaut");
 }
+
+#[test]
+fn rust_la_crate_d_un_chemin_absolu_et_le_tiret() {
+    let r = Regles::charger(None);
+    assert_eq!(r.origines.get("rust").map(String::as_str), Some("défaut"), "{:?}", r.origines);
+    assert!(est_builtin("a.rs", "std::fs"));
+    // `::std::fs` (chemin absolu) : l'ancien code y voyait une crate vide.
+    assert!(est_builtin("a.rs", "::std::fs"));
+    assert!(!est_builtin("a.rs", "serde::Serialize"));
+    assert_eq!(nom_de_paquet_selon(&r, "a.rs", "::serde_json::Value"), "serde_json");
+    assert_eq!(nom_de_paquet_selon(&r, "a.rs", "Serde_Json::Value"), "serde_json");
+    // Cargo dit `serde-json`, l'import `serde_json` : les deux se normalisent pareil.
+    assert_eq!(r.de_fichier("a.rs").unwrap().normaliser("serde-json"), "serde_json");
+}

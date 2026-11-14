@@ -1,0 +1,21 @@
+# Les règles d'import de Rust (codeparsers, `import_resolution::regles`).
+# Un fichier `rust.toml` dans `import_rules_dir` remplace ce fichier entier.
+# Provenance : les crates de la distribution de rustc 1.98.1 (std, core, alloc, proc_macro, test),
+# relues le 14 nov. 2026 dans la documentation de la bibliothèque standard.
+langue = "rust"
+extensions = ["rs"]
+
+[builtin]
+source = "les crates de la distribution (std, core, alloc, proc_macro, test)"
+noms = ["std", "core", "alloc", "proc_macro", "test"]
+
+[local]
+prefixes = ["crate::", "self::", "super::"]
+
+[nom_de_paquet]
+separateur = "::"
+garder = 1
+# `::serde::Serialize` (chemin absolu de l'édition 2018) nomme la crate `serde`.
+separateur_en_tete_ignore = true
+# Cargo nomme `serde-json` la crate qu'un import écrit `serde_json`.
+variantes = ["tiret_souligne", "casse"]
