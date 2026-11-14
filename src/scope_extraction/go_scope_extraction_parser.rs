@@ -10,7 +10,7 @@ use crate::scope_extraction::types::ClassMemberInfoMemberType;
 use crate::scope_extraction::types::GenericParameter;
 use crate::scope_extraction::types::IdentifierReference;
 use crate::scope_extraction::types::IdentifierReferenceKind;
-use crate::scope_extraction::types::ImportReference;
+use crate::scope_extraction::types::{ImportReference, ImportReferenceKind};
 use crate::scope_extraction::types::ParameterInfo;
 use crate::scope_extraction::types::ScopeFileAnalysis;
 use crate::scope_extraction::types::ScopeInfo;
@@ -134,7 +134,9 @@ impl GoScopeExtractionParser {
         let tree = parser.parse(content, None).expect("failed to parse");
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
 
-        let structured_imports = self.base.extract_structured_imports(content, None);
+        // Les imports Go se lisent sur l'arbre (14 novembre 2026) : les expressions de la base sont
+        // celles de JavaScript (`import X from '…'`) et n'en trouvaient aucun.
+        let structured_imports = Self::extract_go_imports(root_node, content);
         let mut scopes = Vec::new();
         self.extract_scopes(root_node, &mut scopes, content, 0, None, &structured_imports, file_path);
         let file_scopes = self.base.extract_file_scopes(root_node, content, &scopes, file_path, &structured_imports);
@@ -166,6 +168,79 @@ impl GoScopeExtractionParser {
             octets: 0,
             aucun_parseur: false,
         }
+    }
+
+    /// Les imports d'un fichier Go, lus sur l'arbre : chaque `import_spec` (seul ou dans un bloc) donne
+    /// une [`ImportReference`] `Namespace` dont `source` est le chemin et `imported` le nom lié — l'alias
+    /// s'il y en a un, sinon [`Self::nom_lie_par_defaut`]. `_` est un import pour effet (`SideEffect`,
+    /// aucun nom lié) ; `.` verse le paquet dans la portée (aucun qualificatif à suivre : pas de nom lié).
+    fn extract_go_imports(root: SyntaxNode, content: &str) -> Vec<ImportReference> {
+        let mut refs = Vec::new();
+        let mut specs = Vec::new();
+        let mut pile = vec![root];
+        while let Some(n) = pile.pop() {
+            match n.kind() {
+                "import_spec" => specs.push(n),
+                "source_file" | "import_declaration" | "import_spec_list" => {
+                    let mut c = n.walk();
+                    pile.extend(n.children(&mut c));
+                }
+                _ => {}
+            }
+        }
+        specs.sort_by_key(|s| s.start_byte());
+        for spec in specs {
+            let Some(chemin) = spec.child_by_field_name("path") else { continue };
+            let source = content[chemin.byte_range()].trim_matches(|c| c == '"' || c == '`').to_string();
+            if source.is_empty() {
+                continue;
+            }
+            let nom = spec.child_by_field_name("name").map(|n| content[n.byte_range()].to_string());
+            let (imported, alias, kind) = match nom.as_deref() {
+                Some("_") => ("*".to_string(), None, ImportReferenceKind::SideEffect),
+                Some(".") => ("*".to_string(), None, ImportReferenceKind::Namespace),
+                Some(a) => (Self::nom_lie_par_defaut(&source).unwrap_or_else(|| a.to_string()), Some(a.to_string()), ImportReferenceKind::Namespace),
+                None => match Self::nom_lie_par_defaut(&source) {
+                    Some(n) => (n, None, ImportReferenceKind::Namespace),
+                    // Le dernier élément n'est pas un identifiant Go (`go-yaml`) : le vrai nom du paquet
+                    // n'est pas dans le chemin ; l'import se garde, sans nom à lier.
+                    None => ("*".to_string(), None, ImportReferenceKind::Namespace),
+                },
+            };
+            refs.push(ImportReference {
+                module_path: None,
+                is_local: source.starts_with("./") || source.starts_with("../"),
+                source,
+                imported,
+                alias,
+                kind,
+                line: Some(spec.start_position().row + 1),
+                reexport: false,
+            });
+        }
+        refs
+    }
+
+    /// Le nom qu'un import Go lie sans alias, d'après la convention de la chaîne d'outils : le dernier
+    /// élément du chemin (`net/http` → `http`) ; un suffixe de version majeure renvoie à l'élément
+    /// d'avant (`github.com/x/mod/v2` → `mod`), et `gopkg.in` écrit la version après un point
+    /// (`gopkg.in/yaml.v3` → `yaml`). `None` si ce nom n'est pas un identifiant Go.
+    fn nom_lie_par_defaut(chemin: &str) -> Option<String> {
+        let elements: Vec<&str> = chemin.trim_end_matches('/').split('/').collect();
+        let est_version = |e: &str| e.len() > 1 && e.starts_with('v') && e[1..].chars().all(|c| c.is_ascii_digit());
+        let mut dernier = *elements.last()?;
+        if est_version(dernier) && elements.len() > 1 {
+            dernier = elements[elements.len() - 2];
+        }
+        if chemin.starts_with("gopkg.in/") {
+            if let Some((nom, version)) = dernier.rsplit_once('.') {
+                if est_version(version) {
+                    dernier = nom;
+                }
+            }
+        }
+        let identifiant = dernier.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') && dernier.chars().all(|c| c.is_alphanumeric() || c == '_');
+        identifiant.then(|| dernier.to_string())
     }
 
     fn is_exported(name: &str) -> bool {
