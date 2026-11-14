@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 /// Les fichiers livrés, compilés comme défaut : (langue, texte).
 const DEFAUTS: &[(&str, &str)] = &[
+    ("go", include_str!("../../data/imports/go.toml")),
     ("javascript", include_str!("../../data/imports/javascript.toml")),
     ("python", include_str!("../../data/imports/python.toml")),
     ("rust", include_str!("../../data/imports/rust.toml")),
@@ -147,6 +148,21 @@ impl RegleDeLangue {
         let sep = self.nom_de_paquet.separateur.as_deref().unwrap_or("");
         let nom = segments.iter().take(garder).cloned().collect::<Vec<_>>().join(sep);
         vec![self.normaliser(&nom)]
+    }
+
+    /// Sous la règle `plus_long_prefixe_declare` : le plus long nom de `declares` qui est le chemin
+    /// importé ou l'un de ses préfixes au séparateur près (`github.com/x/y` pour `github.com/x/y/sub`).
+    pub fn plus_long_prefixe<'a>(&self, source: &str, declares: &'a std::collections::HashSet<String>) -> Option<&'a str> {
+        if self.nom_de_paquet.regle != Some(RegleNommee::PlusLongPrefixeDeclare) {
+            return None;
+        }
+        let nom = self.candidats(source).into_iter().next()?;
+        let sep = self.nom_de_paquet.separateur.as_deref().unwrap_or("/");
+        declares
+            .iter()
+            .filter(|d| nom == **d || (nom.starts_with(d.as_str()) && nom[d.len()..].starts_with(sep)))
+            .max_by_key(|d| d.len())
+            .map(String::as_str)
     }
 
     /// Un nom normalisé par les variantes de la langue (le même pour un nom importé et un nom de manifeste).

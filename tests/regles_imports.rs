@@ -4,7 +4,7 @@
 //! remplace **la langue entière**, et l'origine des règles se dit ; un fichier illisible retombe sur le
 //! défaut en le disant.
 
-use codeparsers::import_resolution::provenance::{est_builtin, est_builtin_selon, nom_de_paquet_selon, Provenance};
+use codeparsers::import_resolution::provenance::{est_builtin, est_builtin_selon, nom_de_paquet_selon, provenance_d_un_import, Provenance};
 use codeparsers::import_resolution::regles::Regles;
 use codeparsers::parallel::project_parser::{ParseProjectOptions, ProjectParser, ProjectParserOptions};
 use codeparsers::relationship_resolution::types::RelationshipResolverOptions;
@@ -135,4 +135,22 @@ fn rust_la_crate_d_un_chemin_absolu_et_le_tiret() {
     assert_eq!(nom_de_paquet_selon(&r, "a.rs", "Serde_Json::Value"), "serde_json");
     // Cargo dit `serde-json`, l'import `serde_json` : les deux se normalisent pareil.
     assert_eq!(r.de_fichier("a.rs").unwrap().normaliser("serde-json"), "serde_json");
+}
+
+#[test]
+fn go_le_module_est_le_plus_long_prefixe_declare() {
+    let r = Regles::charger(None);
+    assert!(est_builtin("main.go", "net/http"));
+    assert!(!est_builtin("main.go", "github.com/spf13/cobra"));
+    let deps: std::collections::HashSet<String> = ["github.com/spf13/cobra", "github.com/x/y", "github.com/x/y/v2"].iter().map(|s| s.to_string()).collect();
+    let projet: std::collections::HashSet<String> = ["example.com/moi/outil"].iter().map(|s| s.to_string()).collect();
+    let p = |source: &str| provenance_d_un_import(&r, "main.go", source, false, &deps, &projet);
+    // Un sous-paquet d'un module requis : l'ancien code comparait le chemin entier.
+    assert_eq!(p("github.com/spf13/cobra/doc"), Provenance::Dependency);
+    assert_eq!(p("github.com/x/y/v2/sub"), Provenance::Dependency);
+    assert_eq!(p("example.com/moi/outil/internal/a"), Provenance::Project);
+    // `github.com/x/yz` n'est pas sous `github.com/x/y` : le préfixe se coupe au séparateur.
+    assert_eq!(p("github.com/x/yz"), Provenance::Unknown);
+    assert_eq!(p("fmt"), Provenance::Builtin);
+    assert_eq!(r.origines.get("go").map(String::as_str), Some("défaut"), "{:?}", r.origines);
 }

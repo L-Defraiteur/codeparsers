@@ -50,9 +50,6 @@ pub fn est_builtin_selon(regles: &Regles, fichier: &str, source: &str) -> bool {
     match ext {
         "c" | "h" => C_STDLIB_HEADERS.contains(&s),
         "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => CPP_STDLIB_HEADERS.contains(&s) || C_STDLIB_HEADERS.contains(&s),
-        // Go : la règle de la chaîne d'outils — un chemin dont le premier élément n'a pas de point
-        // est la bibliothèque standard (`net/http`) ; un module tiers commence par un domaine.
-        "go" => s.split('/').next().is_some_and(|r| !r.is_empty() && !r.contains('.')),
         "cs" => DOTNET_BCL_NAMESPACES.iter().any(|n| s == *n || s.starts_with(&format!("{n}."))),
         _ => false,
     }
@@ -104,6 +101,18 @@ pub fn provenance_d_un_import(
     }
     if est_builtin_selon(regles, fichier, source) {
         return Provenance::Builtin;
+    }
+    if let Some(r) = regles.de_fichier(fichier) {
+        // Go : le module est le plus long préfixe déclaré du chemin importé.
+        if r.nom_de_paquet.regle == Some(crate::import_resolution::regles::RegleNommee::PlusLongPrefixeDeclare) {
+            return if r.plus_long_prefixe(source, paquets_du_projet).is_some() {
+                Provenance::Project
+            } else if r.plus_long_prefixe(source, dependances).is_some() {
+                Provenance::Dependency
+            } else {
+                Provenance::Unknown
+            };
+        }
     }
     let nom = nom_de_paquet_selon(regles, fichier, source);
     if nom.is_empty() {

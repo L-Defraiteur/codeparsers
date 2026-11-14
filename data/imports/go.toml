@@ -1,0 +1,22 @@
+# Les règles d'import de Go (codeparsers, `import_resolution::regles`).
+# Un fichier `go.toml` dans `import_rules_dir` remplace ce fichier entier.
+# Provenance : la règle de la chaîne d'outils de Go (`go help importpath`, relue le 14 nov. 2026) — un
+# chemin dont le premier élément n'a pas de point est la bibliothèque standard (`net/http`) ; un module
+# tiers commence par un domaine (`github.com/…`). Pas de liste : une règle nommée.
+langue = "go"
+extensions = ["go"]
+
+[builtin]
+regle = "premier_segment_sans_point"
+
+[local]
+prefixes = ["./", "../"]
+
+[nom_de_paquet]
+separateur = "/"
+# Le module est le plus long préfixe déclaré du chemin importé (`github.com/x/y/sub` → `github.com/x/y`
+# quand go.mod requiert `github.com/x/y`).
+regle = "plus_long_prefixe_declare"
+# Les chemins de module Go distinguent la casse ; les noms des manifestes sont comparés minuscules,
+# tirets et soulignés confondus, des deux côtés : la même normalisation, pour comparer.
+variantes = ["tiret_souligne", "casse"]
