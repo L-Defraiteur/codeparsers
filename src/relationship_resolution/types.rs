@@ -166,6 +166,9 @@ pub struct RelationshipResolverOptions {
     /// **Les paquets du dépôt lui-même** (les crates d'un workspace Cargo, les paquets d'un workspace
     /// npm) : un import de l'un de ces noms est `project`, même écrit comme une dépendance.
     pub project_packages: Option<Vec<String>>,
+    /// **Le dossier des règles d'import du dépôt** (`<langue>.toml`, la forme de
+    /// `data/imports/`) : un fichier y remplace la langue entière ; sans lui, les règles livrées.
+    pub import_rules_dir: Option<String>,
 }
 
 /// Référence non résolue (pour debug/amélioration)
