@@ -9,6 +9,7 @@ use crate::import_resolution::c_import_resolver::{CPP_STDLIB_HEADERS, C_STDLIB_H
 use crate::import_resolution::c_sharp_import_resolver::DOTNET_BCL_NAMESPACES;
 use crate::import_resolution::rust_import_resolver::RUST_STD_CRATES;
 use crate::import_resolution::type_script_import_resolver::NODE_BUILTINS;
+pub use crate::import_resolution::regles::Regles;
 
 /// La provenance d'un nom importé.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -34,54 +35,18 @@ impl Provenance {
     }
 }
 
-/// Les modules de la bibliothèque standard de Python : `sys.stdlib_module_names` de **Python 3.14.9**,
-/// figé ici (14 novembre 2026). Un module ajouté par une version plus récente sera `inconnue`, pas
-/// deviné.
-pub const PYTHON_STDLIB_VERSION: &str = "3.14.9";
-pub const PYTHON_STDLIB_MODULES: &[&str] = &[
-    "__future__", "_abc", "_aix_support", "_android_support", "_apple_support", "_ast",
-    "_ast_unparse", "_asyncio", "_bisect", "_blake2", "_bz2", "_codecs", "_codecs_cn", "_codecs_hk",
-    "_codecs_iso2022", "_codecs_jp", "_codecs_kr", "_codecs_tw", "_collections", "_collections_abc",
-    "_colorize", "_compat_pickle", "_contextvars", "_csv", "_ctypes", "_curses", "_curses_panel",
-    "_datetime", "_dbm", "_decimal", "_elementtree", "_frozen_importlib",
-    "_frozen_importlib_external", "_functools", "_gdbm", "_hashlib", "_heapq", "_hmac", "_imp",
-    "_interpchannels", "_interpqueues", "_interpreters", "_io", "_ios_support", "_json", "_locale",
-    "_lsprof", "_lzma", "_markupbase", "_md5", "_multibytecodec", "_multiprocessing", "_opcode",
-    "_opcode_metadata", "_operator", "_osx_support", "_overlapped", "_pickle", "_posixshmem",
-    "_posixsubprocess", "_py_abc", "_py_warnings", "_pydatetime", "_pydecimal", "_pyio", "_pylong",
-    "_pyrepl", "_queue", "_random", "_remote_debugging", "_scproxy", "_sha1", "_sha2", "_sha3",
-    "_signal", "_sitebuiltins", "_socket", "_sqlite3", "_sre", "_ssl", "_stat", "_statistics",
-    "_string", "_strptime", "_struct", "_suggestions", "_symtable", "_sysconfig", "_thread",
-    "_threading_local", "_tkinter", "_tokenize", "_tracemalloc", "_types", "_typing", "_uuid",
-    "_warnings", "_weakref", "_weakrefset", "_winapi", "_wmi", "_zoneinfo", "_zstd", "abc",
-    "annotationlib", "antigravity", "argparse", "array", "ast", "asyncio", "atexit", "base64",
-    "bdb", "binascii", "bisect", "builtins", "bz2", "cProfile", "calendar", "cmath", "cmd", "code",
-    "codecs", "codeop", "collections", "colorsys", "compileall", "compression", "concurrent",
-    "configparser", "contextlib", "contextvars", "copy", "copyreg", "csv", "ctypes", "curses",
-    "dataclasses", "datetime", "dbm", "decimal", "difflib", "dis", "doctest", "email", "encodings",
-    "ensurepip", "enum", "errno", "faulthandler", "fcntl", "filecmp", "fileinput", "fnmatch",
-    "fractions", "ftplib", "functools", "gc", "genericpath", "getopt", "getpass", "gettext", "glob",
-    "graphlib", "grp", "gzip", "hashlib", "heapq", "hmac", "html", "http", "idlelib", "imaplib",
-    "importlib", "inspect", "io", "ipaddress", "itertools", "json", "keyword", "linecache",
-    "locale", "logging", "lzma", "mailbox", "marshal", "math", "mimetypes", "mmap", "modulefinder",
-    "msvcrt", "multiprocessing", "netrc", "nt", "ntpath", "nturl2path", "numbers", "opcode",
-    "operator", "optparse", "os", "pathlib", "pdb", "pickle", "pickletools", "pkgutil", "platform",
-    "plistlib", "poplib", "posix", "posixpath", "pprint", "profile", "pstats", "pty", "pwd",
-    "py_compile", "pyclbr", "pydoc", "pydoc_data", "pyexpat", "queue", "quopri", "random", "re",
-    "readline", "reprlib", "resource", "rlcompleter", "runpy", "sched", "secrets", "select",
-    "selectors", "shelve", "shlex", "shutil", "signal", "site", "smtplib", "socket", "socketserver",
-    "sqlite3", "sre_compile", "sre_constants", "sre_parse", "ssl", "stat", "statistics", "string",
-    "stringprep", "struct", "subprocess", "symtable", "sys", "sysconfig", "syslog", "tabnanny",
-    "tarfile", "tempfile", "termios", "textwrap", "this", "threading", "time", "timeit", "tkinter",
-    "token", "tokenize", "tomllib", "trace", "traceback", "tracemalloc", "tty", "turtle",
-    "turtledemo", "types", "typing", "unicodedata", "unittest", "urllib", "uuid", "venv",
-    "warnings", "wave", "weakref", "webbrowser", "winreg", "winsound", "wsgiref", "xml", "xmlrpc",
-    "zipapp", "zipfile", "zipimport", "zlib", "zoneinfo",
-];
-
 /// L'import `source` d'un fichier `fichier` (son extension dit le langage) vient-il de la bibliothèque
 /// standard du langage ?
 pub fn est_builtin(fichier: &str, source: &str) -> bool {
+    est_builtin_selon(&Regles::partagees(None), fichier, source)
+}
+
+/// [`est_builtin`] selon des règles chargées (`import_rules_dir`) : une langue qui a son fichier de
+/// règles passe par lui, les autres par le code ci-dessous.
+pub fn est_builtin_selon(regles: &Regles, fichier: &str, source: &str) -> bool {
+    if let Some(r) = regles.de_fichier(fichier) {
+        return r.est_builtin(source);
+    }
     let ext = fichier.rsplit('.').next().unwrap_or("");
     let s = source.trim();
     match ext {
@@ -92,7 +57,6 @@ pub fn est_builtin(fichier: &str, source: &str) -> bool {
             // `node:x` est toujours le moteur ; sans préfixe, seulement un nom de la liste.
             nu.is_some() || NODE_BUILTINS.contains(&tete)
         }
-        "py" | "pyi" => s.split('.').next().is_some_and(|r| PYTHON_STDLIB_MODULES.contains(&r)),
         "c" | "h" => C_STDLIB_HEADERS.contains(&s),
         "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => CPP_STDLIB_HEADERS.contains(&s) || C_STDLIB_HEADERS.contains(&s),
         // Go : la règle de la chaîne d'outils — un chemin dont le premier élément n'a pas de point
@@ -109,6 +73,14 @@ pub fn est_builtin(fichier: &str, source: &str) -> bool {
 /// module racine Python (`requests` de `requests.adapters`), le premier dossier d'un en-tête C/C++
 /// (`fmt` de `fmt/format.h`), le chemin de module Go entier.
 pub fn nom_de_paquet(fichier: &str, source: &str) -> String {
+    nom_de_paquet_selon(&Regles::partagees(None), fichier, source)
+}
+
+/// [`nom_de_paquet`] selon des règles chargées ; une règle `aucune` rend un nom vide (rien à comparer).
+pub fn nom_de_paquet_selon(regles: &Regles, fichier: &str, source: &str) -> String {
+    if let Some(r) = regles.de_fichier(fichier) {
+        return r.candidats(source).into_iter().next().unwrap_or_default();
+    }
     let ext = fichier.rsplit('.').next().unwrap_or("");
     let s = source.trim();
     let tete = match ext {
@@ -121,7 +93,6 @@ pub fn nom_de_paquet(fichier: &str, source: &str) -> String {
                 _ => s.to_string(),
             }
         }
-        "py" | "pyi" => s.split('.').next().unwrap_or(s).to_string(),
         "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => s.split('/').next().unwrap_or(s).trim_end_matches(".h").to_string(),
         _ => s.to_string(),
     };
@@ -139,20 +110,23 @@ pub fn normaliser(nom: &str) -> String {
 /// dépôt, `builtin` pour la bibliothèque standard, `dependency` pour une dépendance déclarée,
 /// sinon `inconnue`.
 pub fn provenance_d_un_import(
+    regles: &Regles,
     fichier: &str,
     source: &str,
     est_local: bool,
     dependances: &std::collections::HashSet<String>,
     paquets_du_projet: &std::collections::HashSet<String>,
 ) -> Provenance {
-    if est_local {
+    if est_local || regles.de_fichier(fichier).is_some_and(|r| r.est_local(source)) {
         return Provenance::Project;
     }
-    if est_builtin(fichier, source) {
+    if est_builtin_selon(regles, fichier, source) {
         return Provenance::Builtin;
     }
-    let nom = nom_de_paquet(fichier, source);
-    if paquets_du_projet.contains(&nom) {
+    let nom = nom_de_paquet_selon(regles, fichier, source);
+    if nom.is_empty() {
+        Provenance::Unknown
+    } else if paquets_du_projet.contains(&nom) {
         Provenance::Project
     } else if dependances.contains(&nom) {
         Provenance::Dependency
