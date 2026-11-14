@@ -337,7 +337,11 @@ impl RelationshipResolver {
                     uuid: rel.to_uuid.clone(),
                     name: rel.to_name.clone(),
                     symbols: Vec::new(),
+                    provenance: None,
                 });
+            if entry.provenance.is_none() {
+                entry.provenance = rel.metadata.as_ref().and_then(|m| m.provenances.first().copied());
+            }
             if let Some(sym) = rel.metadata.as_ref().and_then(|m| m.symbol.clone()) {
                 if !sym.is_empty() && !entry.symbols.contains(&sym) {
                     entry.symbols.push(sym);
@@ -980,6 +984,16 @@ impl RelationshipResolver {
                             import_path: Some(imp.source.clone()),
                             sites: vec![site_of(r)],
                             external_binding: liaison.then_some(true),
+                            // La provenance de la liaison : un module externe est la bibliothèque standard
+                            // ou inconnu (une dépendance ne se dit qu'avec les manifestes) ; un import
+                            // relatif qui ne se résout pas reste un module du dépôt.
+                            provenances: if !liaison {
+                                Vec::new()
+                            } else if externe {
+                                vec![crate::import_resolution::provenance::provenance_a_l_analyse(&relative_path, &imp.source, false)]
+                            } else {
+                                vec![crate::import_resolution::provenance::Provenance::Project]
+                            },
                             ..Default::default()
                         }),
                     });
@@ -1201,6 +1215,8 @@ impl RelationshipResolver {
                     symbol: Some(imp.imported.clone()),
                     import_path: Some(imp.source.clone()),
                     sites: vec![site],
+                    // Une bibliothèque n'est jamais du projet (les imports locaux sont sautés plus haut).
+                    provenances: vec![crate::import_resolution::provenance::provenance_a_l_analyse(&relative_path, &imp.source, false)],
                     ..Default::default()
                 }),
             });
@@ -1714,13 +1730,19 @@ fn merge_by_target(rels: Vec<ResolvedRelationship>) -> Vec<ResolvedRelationship>
     for r in rels {
         let cle = (r.from_uuid.clone(), r.to_uuid.clone(), r.r#type.clone());
         if let Some(&i) = index.get(&cle) {
-            let sites = r.metadata.map(|m| m.sites).unwrap_or_default();
+            let (sites, provenances) = r.metadata.map(|m| (m.sites, m.provenances)).unwrap_or_default();
             if let Some(m) = out[i].metadata.as_mut() {
                 for s in sites {
                     if !m.sites.contains(&s) {
                         m.sites.push(s);
                     }
                 }
+                for p in provenances {
+                    if !m.provenances.contains(&p) {
+                        m.provenances.push(p);
+                    }
+                }
+                m.provenances.sort_by_key(|p| p.as_str());
             }
             continue;
         }

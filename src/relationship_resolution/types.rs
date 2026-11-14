@@ -76,6 +76,13 @@ pub struct RelationshipMetadata {
     /// require("m")`). La cible est juste, mais ce n'est pas la définition ; rag3weaver le dit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_binding: Option<bool>,
+    /// **Les provenances des noms importés** (14 novembre 2026) : sur une relation `USES_LIBRARY` (une
+    /// seule) et sur une liaison (`external_binding`) — `builtin`, `project`, `dependency` ou `inconnue`
+    /// (`import_resolution::provenance`). Une liaison fond les mentions d'un scope vers une même zone
+    /// (`merge_by_target`) : elle garde les provenances distinctes, triées, comme `usages` garde les
+    /// usages de ses sites.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub provenances: Vec<crate::import_resolution::provenance::Provenance>,
     pub symbol: Option<String>,
     /// Les usages qui ont fait cette relation : un par occurrence, ou
     /// plusieurs quand le résolveur a fusionné les références d'un scope vers
@@ -229,6 +236,9 @@ pub struct ExternalLibraryInfo {
     pub uuid: String,
     pub name: String,
     pub symbols: Vec<String>,
+    /// La provenance de la bibliothèque (`builtin`, `dependency`, `inconnue` ; jamais `project`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<crate::import_resolution::provenance::Provenance>,
 }
 
 /// Fichier enrichi avec relations résolues
