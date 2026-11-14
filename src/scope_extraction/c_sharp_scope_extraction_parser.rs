@@ -10,7 +10,7 @@ use crate::scope_extraction::types::EnumMemberInfo;
 use crate::scope_extraction::types::GenericParameter;
 use crate::scope_extraction::types::HeritageClause;
 use crate::scope_extraction::types::HeritageClauseClause;
-use crate::scope_extraction::types::ImportReference;
+use crate::scope_extraction::types::{ImportReference, ImportReferenceKind};
 use crate::scope_extraction::types::ParameterInfo;
 use crate::scope_extraction::types::ScopeFileAnalysis;
 use crate::scope_extraction::types::ScopeInfo;
@@ -138,13 +138,33 @@ impl CSharpScopeExtractionParser {
         let tree = parser.parse(content, None).expect("failed to parse");
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
 
-        let structured_imports = self.base.extract_structured_imports(content, None);
+        // Les `using` se lisent sur l'arbre (14 novembre 2026) : les expressions de la base sont celles
+        // de JavaScript et n'en trouvaient aucun.
+        let structured_imports = Self::extract_using_directives(root_node, content);
         let mut scopes = Vec::new();
         self.extract_scopes(root_node, &mut scopes, content, 0, None, &structured_imports, file_path);
         let file_scopes = self.base.extract_file_scopes(root_node, content, &scopes, file_path, &structured_imports);
         scopes.extend(file_scopes);
         scopes.sort_by_key(|s| s.scope_start_line);
         let scope_index = self.base.classify_scope_references(&mut scopes, &structured_imports);
+        // Un `using` sans nom lié (voie 1) n'est employé par aucun nom : il se porte par le plus petit scope
+        // qui contient sa ligne (la zone de fichier en tête, le `namespace` pour un `using` dedans), d'où part
+        // sa bibliothèque (`USES_LIBRARY`), avec sa provenance.
+        for imp in structured_imports.iter().filter(|i| i.alias.is_none()) {
+            let Some(ligne) = imp.line else { continue };
+            let porteur = scopes
+                .iter_mut()
+                .filter(|s| s.scope_start_line <= ligne && ligne <= s.scope_end_line)
+                .min_by_key(|s| s.scope_end_line - s.scope_start_line);
+            if let Some(s) = porteur {
+                if !s.import_references.iter().any(|r| r.source == imp.source && r.imported == imp.imported) {
+                    s.import_references.push(imp.clone());
+                    if !s.imports.contains(&imp.source) {
+                        s.imports.push(imp.source.clone());
+                    }
+                }
+            }
+        }
         self.base.attach_signature_references(&mut scopes, &scope_index, &structured_imports);
 
         let imports = self.base.extract_imports(content);
@@ -1160,6 +1180,63 @@ impl CSharpScopeExtractionParser {
         }
 
         members
+    }
+
+    /// Les `using` d'un fichier C#, lus sur l'arbre (au fichier et dans un `namespace`, `global` compris) :
+    /// - `using A.B;` verse les types de l'espace dans la portée : une `ImportReference` `Namespace` sans nom
+    ///   lié (`imported = "*"`) ; la bibliothèque et sa provenance suivent, rien n'est deviné ;
+    /// - `using static A.B.T;` verse des membres : de même, sans nom lié ;
+    /// - `using J = A.B.T;` lie le nom `J` : une `ImportReference` `Named` (`imported = T`, `alias = J`).
+    /// Un `using (…)` d'instruction n'est pas une `using_directive` et ne compte pas.
+    fn extract_using_directives(root: SyntaxNode, content: &str) -> Vec<ImportReference> {
+        let mut refs = Vec::new();
+        let mut directives = Vec::new();
+        let mut pile = vec![root];
+        while let Some(n) = pile.pop() {
+            match n.kind() {
+                "using_directive" => directives.push(n),
+                "compilation_unit" | "namespace_declaration" | "file_scoped_namespace_declaration" | "declaration_list" => {
+                    let mut c = n.walk();
+                    pile.extend(n.children(&mut c));
+                }
+                _ => {}
+            }
+        }
+        directives.sort_by_key(|d| d.start_byte());
+        for d in directives {
+            let texte = content[d.byte_range()].trim().trim_end_matches(';').trim();
+            let mut corps = texte.strip_prefix("global").map(str::trim_start).unwrap_or(texte);
+            corps = corps.strip_prefix("using").map(str::trim_start).unwrap_or(corps);
+            let statique = corps.starts_with("static ");
+            if statique {
+                corps = corps["static ".len()..].trim_start();
+            }
+            let sans_espace = |s: &str| s.split_whitespace().collect::<String>();
+            let (alias, cible) = match corps.split_once('=') {
+                Some((a, c)) if !statique => (Some(sans_espace(a)), sans_espace(c)),
+                _ => (None, sans_espace(corps)),
+            };
+            // `global::A.B` : la racine globale ne fait pas partie du nom.
+            let cible = cible.strip_prefix("global::").unwrap_or(&cible).to_string();
+            if cible.is_empty() || !cible.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') {
+                continue;
+            }
+            let (imported, kind) = match &alias {
+                Some(_) => (cible.rsplit('.').next().unwrap_or(&cible).to_string(), ImportReferenceKind::Named),
+                None => ("*".to_string(), ImportReferenceKind::Namespace),
+            };
+            refs.push(ImportReference {
+                module_path: None,
+                source: cible,
+                imported,
+                alias,
+                kind,
+                is_local: false,
+                line: Some(d.start_position().row + 1),
+                reexport: false,
+            });
+        }
+        refs
     }
 
     fn get_accessibility(&self, modifiers: &[String]) -> ClassMemberInfoAccessibility {
