@@ -82,7 +82,7 @@ pub fn provenance_d_un_import(
     dependances: &std::collections::HashSet<String>,
     paquets_du_projet: &std::collections::HashSet<String>,
 ) -> Provenance {
-    provenance_d_un_import_declare(regles, fichier, source, est_local, &Declares { dependances, paquets_du_projet, par_langue: None })
+    provenance_d_un_import_declare(regles, fichier, source, est_local, &Declares { dependances, paquets_du_projet, par_langue: None, prefixes_locaux: None })
 }
 
 /// Ce que les manifestes du dépôt déclarent : les tables de toutes les langues (noms normalisés par
@@ -93,6 +93,8 @@ pub struct Declares<'a> {
     pub paquets_du_projet: &'a std::collections::HashSet<String>,
     /// Par langue : (dépendances, paquets du projet).
     pub par_langue: Option<&'a std::collections::HashMap<String, (std::collections::HashSet<String>, std::collections::HashSet<String>)>>,
+    /// Par langue : les alias de résolution du dépôt (`~/`, `@app/`), préfixes d'un import du projet.
+    pub prefixes_locaux: Option<&'a std::collections::HashMap<String, Vec<String>>>,
 }
 
 /// [`provenance_d_un_import`] avec les tables par langue : la table de la langue du fichier compare le
@@ -100,7 +102,10 @@ pub struct Declares<'a> {
 /// nom normalisé par [`normaliser`].
 pub fn provenance_d_un_import_declare(regles: &Regles, fichier: &str, source: &str, est_local: bool, declares: &Declares) -> Provenance {
     let regle = regles.de_fichier(fichier);
-    if est_local || regle.is_some_and(|r| r.est_local(source)) {
+    let alias_du_depot = regle
+        .and_then(|r| declares.prefixes_locaux.and_then(|m| m.get(&r.langue)))
+        .is_some_and(|p| p.iter().any(|p| !p.is_empty() && source.trim().starts_with(p.as_str())));
+    if est_local || alias_du_depot || regle.is_some_and(|r| r.est_local(source)) {
         return Provenance::Project;
     }
     if est_builtin_selon(regles, fichier, source) {

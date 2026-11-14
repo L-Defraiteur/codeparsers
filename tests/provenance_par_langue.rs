@@ -18,7 +18,7 @@ fn go_un_module_a_casse_melee_garde_sa_casse() {
     let r = Regles::charger(None);
     let vide = HashSet::new();
     let par_langue = HashMap::from([("go".to_string(), (ensemble(&["github.com/Azure/azure-sdk-for-go"]), HashSet::new()))]);
-    let d = Declares { dependances: &vide, paquets_du_projet: &vide, par_langue: Some(&par_langue) };
+    let d = Declares { dependances: &vide, paquets_du_projet: &vide, par_langue: Some(&par_langue), prefixes_locaux: None };
     let p = |source: &str| provenance_d_un_import_declare(&r, "main.go", source, false, &d);
     assert_eq!(p("github.com/Azure/azure-sdk-for-go/sdk/azcore"), Provenance::Dependency, "le module requis, sous sa casse");
     assert_eq!(p("github.com/azure/azure-sdk-for-go/sdk/azcore"), Provenance::Unknown, "un autre module, d'une autre casse");
@@ -31,7 +31,7 @@ fn go_la_table_de_toutes_les_langues_reste_minuscule() {
     let r = Regles::charger(None);
     let vide = HashSet::new();
     let tous = ensemble(&["github.com/azure/azure_sdk_for_go"]);
-    let d = Declares { dependances: &tous, paquets_du_projet: &vide, par_langue: None };
+    let d = Declares { dependances: &tous, paquets_du_projet: &vide, par_langue: None, prefixes_locaux: None };
     assert_eq!(provenance_d_un_import_declare(&r, "main.go", "github.com/Azure/azure-sdk-for-go/sdk/azcore", false, &d), Provenance::Dependency);
 }
 
@@ -74,7 +74,7 @@ fn csharp_un_espace_de_noms_trouve_son_paquet_nuget_au_plus_long_prefixe() {
     let cs = r.de_langue("csharp").expect("les règles de C#");
     let normes = |noms: &[&str]| noms.iter().map(|n| cs.normaliser(n)).collect::<HashSet<String>>();
     let par_langue = HashMap::from([("csharp".to_string(), (normes(&["Newtonsoft.Json", "Serilog", "Serilog.Sinks.Console"]), normes(&["Mon.Outil"])))]);
-    let d = Declares { dependances: &vide, paquets_du_projet: &vide, par_langue: Some(&par_langue) };
+    let d = Declares { dependances: &vide, paquets_du_projet: &vide, par_langue: Some(&par_langue), prefixes_locaux: None };
     let p = |source: &str| provenance_d_un_import_declare(&r, "a.cs", source, false, &d);
     // `using Newtonsoft.Json.Linq;` vient du paquet Newtonsoft.Json : l'ancienne règle comparait l'espace entier.
     assert_eq!(p("Newtonsoft.Json.Linq"), Provenance::Dependency);

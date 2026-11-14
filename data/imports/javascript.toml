@@ -22,7 +22,10 @@ noms = [
 ]
 
 [local]
-prefixes = ["./", "../"]
+# `#…` : les imports internes d'un paquet (le champ `imports` de package.json, Node 12.19+), toujours du
+# paquet lui-même. Les alias propres à un dépôt (`paths` de tsconfig) se déclarent
+# (`local_prefixes_by_language`).
+prefixes = ["./", "../", "#"]
 
 [nom_de_paquet]
 separateur = "/"

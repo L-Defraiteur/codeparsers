@@ -1034,7 +1034,7 @@ impl RelationshipResolver {
                             provenances: if !liaison {
                                 Vec::new()
                             } else if externe {
-                                vec![crate::import_resolution::provenance::provenance_d_un_import_declare(&self.regles, &relative_path, &imp.source, false, &crate::import_resolution::provenance::Declares { dependances: &self.dependances, paquets_du_projet: &self.paquets_du_projet, par_langue: Some(&self.declares_par_langue) })]
+                                vec![crate::import_resolution::provenance::provenance_d_un_import_declare(&self.regles, &relative_path, &imp.source, false, &crate::import_resolution::provenance::Declares { dependances: &self.dependances, paquets_du_projet: &self.paquets_du_projet, par_langue: Some(&self.declares_par_langue), prefixes_locaux: self.options.local_prefixes_by_language.as_ref() })]
                             } else {
                                 vec![crate::import_resolution::provenance::Provenance::Project]
                             },
@@ -1260,7 +1260,7 @@ impl RelationshipResolver {
                     import_path: Some(imp.source.clone()),
                     sites: vec![site],
                     // Une bibliothèque n'est jamais du projet (les imports locaux sont sautés plus haut).
-                    provenances: vec![crate::import_resolution::provenance::provenance_d_un_import_declare(&self.regles, &relative_path, &imp.source, false, &crate::import_resolution::provenance::Declares { dependances: &self.dependances, paquets_du_projet: &self.paquets_du_projet, par_langue: Some(&self.declares_par_langue) })],
+                    provenances: vec![crate::import_resolution::provenance::provenance_d_un_import_declare(&self.regles, &relative_path, &imp.source, false, &crate::import_resolution::provenance::Declares { dependances: &self.dependances, paquets_du_projet: &self.paquets_du_projet, par_langue: Some(&self.declares_par_langue), prefixes_locaux: self.options.local_prefixes_by_language.as_ref() })],
                     ..Default::default()
                 }),
             });

@@ -179,6 +179,10 @@ pub struct RelationshipResolverOptions {
     /// table livrée de la langue (`data/imports/<langue>.toml`, `[distributions]`), ou la remplacent si
     /// `replace`.
     pub import_renames: Option<std::collections::HashMap<String, ImportRenames>>,
+    /// **Les alias de résolution du dépôt, par langue** (les `paths` de tsconfig : `~/`, `@app/`) : un
+    /// import qui commence par l'un d'eux désigne un fichier du dépôt — `project`. Ils s'ajoutent aux
+    /// préfixes locaux de la langue (`data/imports/<langue>.toml`, `[local]`).
+    pub local_prefixes_by_language: Option<std::collections::HashMap<String, Vec<String>>>,
     /// **Le dossier des règles d'import du dépôt** (`<langue>.toml`, la forme de
     /// `data/imports/`) : un fichier y remplace la langue entière ; sans lui, les règles livrées.
     pub import_rules_dir: Option<String>,
