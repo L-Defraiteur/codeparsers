@@ -154,3 +154,28 @@ fn go_le_module_est_le_plus_long_prefixe_declare() {
     assert_eq!(p("fmt"), Provenance::Builtin);
     assert_eq!(r.origines.get("go").map(String::as_str), Some("défaut"), "{:?}", r.origines);
 }
+
+#[test]
+fn c_et_cpp_les_en_tetes_de_c23_et_de_libstdcxx() {
+    let r = Regles::charger(None);
+    // `stdbit.h` et `stdckdint.h` (C23), `<format>`, `<expected>` et `<print>` manquaient à l'ancienne liste.
+    for (fichier, nom) in [("a.c", "stdbit.h"), ("a.h", "stdckdint.h"), ("a.cpp", "format"), ("a.hpp", "expected"), ("a.cc", "print"), ("a.cpp", "stdio.h")] {
+        assert!(est_builtin(fichier, nom), "{nom} est de la bibliothèque standard ({fichier})");
+    }
+    assert!(!est_builtin("a.c", "format"), "un en-tête C++ n'est pas de C");
+    assert!(!est_builtin("a.cpp", "fmt/format.h"));
+    assert_eq!(nom_de_paquet_selon(&r, "a.cpp", "fmt/format.h"), "fmt");
+    assert_eq!(nom_de_paquet_selon(&r, "a.c", "zlib.h"), "zlib");
+    assert_eq!(r.origines.get("c").map(String::as_str), Some("défaut"), "{:?}", r.origines);
+    assert_eq!(r.origines.get("cpp").map(String::as_str), Some("défaut"), "{:?}", r.origines);
+}
+
+#[test]
+fn csharp_un_espace_de_noms_couvre_ses_enfants() {
+    let r = Regles::charger(None);
+    assert!(est_builtin_selon(&r, "a.cs", "System.Text.Json.Serialization"));
+    assert!(est_builtin_selon(&r, "a.cs", "Microsoft.Extensions.Logging.Abstractions"));
+    assert!(!est_builtin_selon(&r, "a.cs", "Microsoft.Extensionsx"), "le préfixe se coupe au point");
+    assert!(!est_builtin_selon(&r, "a.cs", "Newtonsoft.Json"));
+    assert_eq!(r.origines.get("csharp").map(String::as_str), Some("défaut"), "{:?}", r.origines);
+}

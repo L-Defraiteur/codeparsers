@@ -1,12 +1,11 @@
 //! **La provenance d'un nom importé** (14 novembre 2026, décision de Lucie relayée par l'orchestration) :
 //! `builtin` (la bibliothèque standard du langage), `project` (un module du dépôt), `dependency` (une
 //! dépendance d'un gestionnaire de paquets) ou `inconnue` — jamais une devinette. codeparsers tranche
-//! `builtin` par des listes fixes par langage et `project` par la forme de l'import ; `dependency`
+//! `builtin` et `project` par les règles d'import de chaque langue (`data/imports/<langue>.toml`,
+//! `import_resolution::regles`, qui disent aussi d'où vient chaque liste) ; `dependency`
 //! demande les manifestes du dépôt (Cargo.lock, package.json…), que lit le consommateur (rag3weaver) :
 //! ici, ce qui n'est ni l'un ni l'autre reste `inconnue`.
 
-use crate::import_resolution::c_import_resolver::{CPP_STDLIB_HEADERS, C_STDLIB_HEADERS};
-use crate::import_resolution::c_sharp_import_resolver::DOTNET_BCL_NAMESPACES;
 pub use crate::import_resolution::regles::Regles;
 
 /// La provenance d'un nom importé.
@@ -39,22 +38,15 @@ pub fn est_builtin(fichier: &str, source: &str) -> bool {
     est_builtin_selon(&Regles::partagees(None), fichier, source)
 }
 
-/// [`est_builtin`] selon des règles chargées (`import_rules_dir`) : une langue qui a son fichier de
-/// règles passe par lui, les autres par le code ci-dessous.
+/// [`est_builtin`] selon des règles chargées (`import_rules_dir`) : la langue du fichier passe par son
+/// fichier de règles (`data/imports/<langue>.toml`).
 pub fn est_builtin_selon(regles: &Regles, fichier: &str, source: &str) -> bool {
     if let Some(r) = regles.de_fichier(fichier) {
         return r.est_builtin(source);
     }
-    let ext = fichier.rsplit('.').next().unwrap_or("");
-    let s = source.trim();
-    match ext {
-        "c" | "h" => C_STDLIB_HEADERS.contains(&s),
-        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => CPP_STDLIB_HEADERS.contains(&s) || C_STDLIB_HEADERS.contains(&s),
-        "cs" => DOTNET_BCL_NAMESPACES.iter().any(|n| s == *n || s.starts_with(&format!("{n}."))),
-        _ => false,
-    }
+    // Une langue sans fichier de règles n'a pas de bibliothèque standard connue.
+    false
 }
-
 
 /// Le nom de paquet qu'un import nomme, comparable à un nom de manifeste : la crate (`serde` de
 /// `serde::Serialize`), le paquet npm (`lodash` de `lodash/fp`, `@scope/pkg` de `@scope/pkg/sub`), le
@@ -69,13 +61,7 @@ pub fn nom_de_paquet_selon(regles: &Regles, fichier: &str, source: &str) -> Stri
     if let Some(r) = regles.de_fichier(fichier) {
         return r.candidats(source).into_iter().next().unwrap_or_default();
     }
-    let ext = fichier.rsplit('.').next().unwrap_or("");
-    let s = source.trim();
-    let tete = match ext {
-        "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => s.split('/').next().unwrap_or(s).trim_end_matches(".h").to_string(),
-        _ => s.to_string(),
-    };
-    normaliser(&tete)
+    normaliser(source)
 }
 
 /// Un nom de paquet comparable : minuscules, `-` et `_` confondus (`serde-json` et `serde_json`,

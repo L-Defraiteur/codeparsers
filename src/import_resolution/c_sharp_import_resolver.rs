@@ -7,23 +7,6 @@ use crate::import_resolution::types::CSharpConfig;
 use crate::import_resolution::types::ImportType;
 use crate::import_resolution::types::ResolvedImport;
 
-pub const DOTNET_BCL_NAMESPACES: &[&str] = &[
-    "System", "System.Collections", "System.Collections.Generic", "System.Collections.Concurrent",
-    "System.Collections.Immutable", "System.Collections.ObjectModel", "System.Collections.Specialized", "System.ComponentModel",
-    "System.ComponentModel.DataAnnotations", "System.Configuration", "System.Data", "System.Diagnostics",
-    "System.Drawing", "System.Dynamic", "System.Globalization", "System.IO",
-    "System.IO.Compression", "System.IO.Pipes", "System.Linq", "System.Linq.Expressions",
-    "System.Net", "System.Net.Http", "System.Net.Sockets", "System.Net.WebSockets",
-    "System.Numerics", "System.Reflection", "System.Resources", "System.Runtime",
-    "System.Runtime.CompilerServices", "System.Runtime.InteropServices", "System.Runtime.Serialization", "System.Security",
-    "System.Security.Cryptography", "System.Text", "System.Text.Json", "System.Text.RegularExpressions",
-    "System.Threading", "System.Threading.Tasks", "System.Threading.Channels", "System.Timers",
-    "System.Transactions", "System.Web", "System.Xml", "System.Xml.Linq",
-    "System.Xml.Serialization", "Microsoft.Extensions", "Microsoft.Extensions.DependencyInjection", "Microsoft.Extensions.Logging",
-    "Microsoft.Extensions.Configuration", "Microsoft.Extensions.Hosting", "Microsoft.Extensions.Options", "Microsoft.AspNetCore",
-    "Microsoft.AspNetCore.Mvc", "Microsoft.AspNetCore.Http", "Microsoft.EntityFrameworkCore", "Microsoft.Data",
-];
-
 pub const COMMON_NUGET_PACKAGES: &[&str] = &[
     "Newtonsoft.Json", "AutoMapper", "FluentValidation", "MediatR",
     "Serilog", "NLog", "log4net", "Polly",
@@ -169,7 +152,7 @@ impl CSharpImportResolver {
     /// Check if a namespace is from the BCL
 
     fn is_bcl_namespace(&self, namespace: &str) -> bool {
-        if DOTNET_BCL_NAMESPACES.contains(&namespace) {
+        if crate::import_resolution::regles::Regles::partagees(None).de_fichier("x.cs").is_some_and(|r| r.est_builtin(namespace)) {
             return true;
         }
 

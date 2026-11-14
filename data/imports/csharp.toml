@@ -1,0 +1,36 @@
+# Les règles d'import de C# (codeparsers, `import_resolution::regles`).
+# Un fichier `csharp.toml` dans `import_rules_dir` remplace ce fichier entier.
+# Provenance : la liste reprise telle quelle de l'ancien code (`c_sharp_import_resolver.rs`), le
+# 14 nov. 2026 ; elle n'est tirée d'aucune source vérifiable (pas de .NET sur le poste) et mêle la BCL à des
+# paquets NuGet de Microsoft (`Microsoft.EntityFrameworkCore`). À relire contre un SDK .NET.
+langue = "csharp"
+extensions = ["cs"]
+
+[builtin]
+source = "liste de l'ancien code, sans source vérifiée (56 espaces de noms)"
+# Un espace de noms de la liste, ou l'un de ses enfants (`System.Text.Json.Serialization`).
+par_prefixe = true
+noms = [
+    "System", "System.Collections", "System.Collections.Generic", "System.Collections.Concurrent",
+    "System.Collections.Immutable", "System.Collections.ObjectModel",
+    "System.Collections.Specialized", "System.ComponentModel",
+    "System.ComponentModel.DataAnnotations", "System.Configuration", "System.Data",
+    "System.Diagnostics", "System.Drawing", "System.Dynamic", "System.Globalization", "System.IO",
+    "System.IO.Compression", "System.IO.Pipes", "System.Linq", "System.Linq.Expressions",
+    "System.Net", "System.Net.Http", "System.Net.Sockets", "System.Net.WebSockets",
+    "System.Numerics", "System.Reflection", "System.Resources", "System.Runtime",
+    "System.Runtime.CompilerServices", "System.Runtime.InteropServices",
+    "System.Runtime.Serialization", "System.Security", "System.Security.Cryptography",
+    "System.Text", "System.Text.Json", "System.Text.RegularExpressions", "System.Threading",
+    "System.Threading.Tasks", "System.Threading.Channels", "System.Timers", "System.Transactions",
+    "System.Web", "System.Xml", "System.Xml.Linq", "System.Xml.Serialization",
+    "Microsoft.Extensions", "Microsoft.Extensions.DependencyInjection",
+    "Microsoft.Extensions.Logging", "Microsoft.Extensions.Configuration",
+    "Microsoft.Extensions.Hosting", "Microsoft.Extensions.Options", "Microsoft.AspNetCore",
+    "Microsoft.AspNetCore.Mvc", "Microsoft.AspNetCore.Http", "Microsoft.EntityFrameworkCore",
+    "Microsoft.Data",
+]
+
+[nom_de_paquet]
+separateur = "."
+variantes = ["tiret_souligne", "casse"]

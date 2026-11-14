@@ -1,0 +1,23 @@
+# Les règles d'import de C (codeparsers, `import_resolution::regles`).
+# Un fichier `c.toml` dans `import_rules_dir` remplace ce fichier entier.
+# Provenance : les en-têtes de la bibliothèque standard de C23 (ISO/IEC 9899:2024, §7.1.2), relus le
+# 14 nov. 2026 (31 noms ; `stdbit.h` et `stdckdint.h` manquaient à l'ancienne liste du code).
+langue = "c"
+extensions = ["c", "h"]
+
+[builtin]
+source = "ISO/IEC 9899:2024 (C23) §7.1.2, 31 en-têtes"
+noms = [
+    "assert.h", "complex.h", "ctype.h", "errno.h", "fenv.h", "float.h", "inttypes.h", "iso646.h",
+    "limits.h", "locale.h", "math.h", "setjmp.h", "signal.h", "stdalign.h", "stdarg.h",
+    "stdatomic.h", "stdbit.h", "stdbool.h", "stdckdint.h", "stddef.h", "stdint.h", "stdio.h",
+    "stdlib.h", "stdnoreturn.h", "string.h", "tgmath.h", "threads.h", "time.h", "uchar.h",
+    "wchar.h", "wctype.h",
+]
+
+[nom_de_paquet]
+separateur = "/"
+# Le premier dossier de l'en-tête, sans `.h` : `fmt/format.h` → `fmt`, `zlib.h` → `zlib`.
+garder = 1
+suffixes_retires = [".h"]
+variantes = ["tiret_souligne", "casse"]

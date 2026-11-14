@@ -8,41 +8,6 @@ use crate::import_resolution::types::CConfig;
 use crate::import_resolution::types::ImportType;
 use crate::import_resolution::types::ResolvedImport;
 
-pub const C_STDLIB_HEADERS: &[&str] = &[
-    "assert.h", "complex.h", "ctype.h", "errno.h",
-    "fenv.h", "float.h", "inttypes.h", "iso646.h",
-    "limits.h", "locale.h", "math.h", "setjmp.h",
-    "signal.h", "stdalign.h", "stdarg.h", "stdatomic.h",
-    "stdbool.h", "stddef.h", "stdint.h", "stdio.h",
-    "stdlib.h", "stdnoreturn.h", "string.h", "tgmath.h",
-    "threads.h", "time.h", "uchar.h", "wchar.h",
-    "wctype.h",
-];
-
-pub const CPP_STDLIB_HEADERS: &[&str] = &[
-    "algorithm", "any", "array", "atomic",
-    "bitset", "cassert", "cctype", "cerrno",
-    "cfenv", "cfloat", "chrono", "cinttypes",
-    "climits", "clocale", "cmath", "codecvt",
-    "complex", "condition_variable", "csetjmp", "csignal",
-    "cstdarg", "cstddef", "cstdint", "cstdio",
-    "cstdlib", "cstring", "ctime", "cuchar",
-    "cwchar", "cwctype", "deque", "exception",
-    "execution", "filesystem", "forward_list", "fstream",
-    "functional", "future", "initializer_list", "iomanip",
-    "ios", "iosfwd", "iostream", "istream",
-    "iterator", "limits", "list", "locale",
-    "map", "memory", "memory_resource", "mutex",
-    "new", "numeric", "optional", "ostream",
-    "queue", "random", "ratio", "regex",
-    "scoped_allocator", "set", "shared_mutex", "span",
-    "sstream", "stack", "stdexcept", "streambuf",
-    "string", "string_view", "syncstream", "system_error",
-    "thread", "tuple", "type_traits", "typeindex",
-    "typeinfo", "unordered_map", "unordered_set", "utility",
-    "valarray", "variant", "vector", "version",
-];
-
 /// Parse #include directive to extract path and type
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -222,7 +187,8 @@ impl CImportResolver {
             .file_name()
             .and_then(|f| f.to_str())
             .unwrap_or(module_name);
-        C_STDLIB_HEADERS.contains(&basename) || CPP_STDLIB_HEADERS.contains(&basename)
+        // Les listes vivent dans `data/imports/cpp.toml` (C++ et C), les règles livrées.
+        crate::import_resolution::regles::Regles::partagees(None).de_fichier("x.cpp").is_some_and(|r| r.est_builtin(basename))
     }
 
     /// Resolve an import to an absolute file path (implements BaseImportResolver)

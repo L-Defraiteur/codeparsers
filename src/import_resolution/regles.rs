@@ -13,6 +13,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 /// Les fichiers livrés, compilés comme défaut : (langue, texte).
 const DEFAUTS: &[(&str, &str)] = &[
+    ("c", include_str!("../../data/imports/c.toml")),
+    ("cpp", include_str!("../../data/imports/cpp.toml")),
+    ("csharp", include_str!("../../data/imports/csharp.toml")),
     ("go", include_str!("../../data/imports/go.toml")),
     ("javascript", include_str!("../../data/imports/javascript.toml")),
     ("python", include_str!("../../data/imports/python.toml")),
@@ -53,6 +56,9 @@ pub struct Builtin {
     pub prefixes: Vec<String>,
     #[serde(default)]
     pub regle: Option<RegleNommee>,
+    /// Un nom de la liste couvre ses enfants (C# : `System.Text` couvre `System.Text.Json`).
+    #[serde(default)]
+    pub par_prefixe: bool,
 }
 
 #[derive(Debug, Clone, Default, serde::Deserialize)]
@@ -78,6 +84,9 @@ pub struct NomDePaquet {
     /// Un séparateur en tête ne compte pas (Rust : `::serde::X` est la crate `serde`).
     #[serde(default)]
     pub separateur_en_tete_ignore: bool,
+    /// Les suffixes retirés du nom de paquet (C : `zlib.h` → `zlib`).
+    #[serde(default)]
+    pub suffixes_retires: Vec<String>,
     #[serde(default)]
     pub variantes: Vec<Variante>,
     #[serde(default)]
@@ -123,6 +132,10 @@ impl RegleDeLangue {
             None => {}
         }
         let premier = self.tete(s).into_iter().next().unwrap_or_default();
+        if self.builtin.par_prefixe {
+            let sep = self.nom_de_paquet.separateur.as_deref().unwrap_or("");
+            return self.builtin.noms.iter().any(|n| s == n || (!sep.is_empty() && s.starts_with(n.as_str()) && s[n.len()..].starts_with(sep)));
+        }
         self.builtin.noms.iter().any(|n| n == &premier || n == s)
     }
 
@@ -146,7 +159,12 @@ impl RegleDeLangue {
             }
         }
         let sep = self.nom_de_paquet.separateur.as_deref().unwrap_or("");
-        let nom = segments.iter().take(garder).cloned().collect::<Vec<_>>().join(sep);
+        let mut nom = segments.iter().take(garder).cloned().collect::<Vec<_>>().join(sep);
+        for suffixe in &self.nom_de_paquet.suffixes_retires {
+            if let Some(n) = nom.strip_suffix(suffixe.as_str()) {
+                nom = n.to_string();
+            }
+        }
         vec![self.normaliser(&nom)]
     }
 

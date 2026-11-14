@@ -1,0 +1,39 @@
+# Les règles d'import de C++ (codeparsers, `import_resolution::regles`).
+# Un fichier `cpp.toml` dans `import_rules_dir` remplace ce fichier entier.
+# Provenance : les en-têtes livrés par libstdc++ de GCC 16.2.1 (les fichiers sans extension de
+# `/usr/include/c++/16`, 117 noms), relus le 14 nov. 2026, plus les 31 en-têtes de C23, qu'un fichier C++
+# inclut aussi. À relire à chaque GCC : `find /usr/include/c++/<v> -maxdepth 1 -type f ! -name '*.*'`.
+langue = "cpp"
+extensions = ["cpp", "cc", "cxx", "hpp", "hh", "hxx"]
+
+[builtin]
+source = "libstdc++ de GCC 16.2.1 (117 en-têtes) et C23 §7.1.2 (31 en-têtes)"
+noms = [
+    "algorithm", "any", "array", "atomic", "barrier", "bit", "bitset", "cassert", "ccomplex",
+    "cctype", "cerrno", "cfenv", "cfloat", "charconv", "chrono", "cinttypes", "ciso646", "climits",
+    "clocale", "cmath", "codecvt", "compare", "complex", "concepts", "condition_variable",
+    "contracts", "coroutine", "csetjmp", "csignal", "cstdalign", "cstdarg", "cstdbool", "cstddef",
+    "cstdint", "cstdio", "cstdlib", "cstring", "ctgmath", "ctime", "cuchar", "cwchar", "cwctype",
+    "debugging", "deque", "exception", "execution", "expected", "filesystem", "flat_map",
+    "flat_set", "format", "forward_list", "fstream", "functional", "future", "generator",
+    "initializer_list", "inplace_vector", "iomanip", "ios", "iosfwd", "iostream", "istream",
+    "iterator", "latch", "limits", "list", "locale", "map", "mdspan", "memory", "memory_resource",
+    "meta", "mutex", "new", "numbers", "numeric", "optional", "ostream", "print", "queue", "random",
+    "ranges", "ratio", "regex", "scoped_allocator", "semaphore", "set", "shared_mutex", "simd",
+    "source_location", "span", "spanstream", "sstream", "stack", "stacktrace", "stdexcept",
+    "stdfloat", "stop_token", "streambuf", "string", "string_view", "syncstream", "system_error",
+    "text_encoding", "thread", "tuple", "type_traits", "typeindex", "typeinfo", "unordered_map",
+    "unordered_set", "utility", "valarray", "variant", "vector", "version",
+    "assert.h", "complex.h", "ctype.h", "errno.h", "fenv.h", "float.h", "inttypes.h", "iso646.h",
+    "limits.h", "locale.h", "math.h", "setjmp.h", "signal.h", "stdalign.h", "stdarg.h",
+    "stdatomic.h", "stdbit.h", "stdbool.h", "stdckdint.h", "stddef.h", "stdint.h", "stdio.h",
+    "stdlib.h", "stdnoreturn.h", "string.h", "tgmath.h", "threads.h", "time.h", "uchar.h",
+    "wchar.h", "wctype.h",
+]
+
+[nom_de_paquet]
+separateur = "/"
+# Le premier dossier de l'en-tête, sans `.h` : `fmt/format.h` → `fmt`, `zlib.h` → `zlib`.
+garder = 1
+suffixes_retires = [".h"]
+variantes = ["tiret_souligne", "casse"]
