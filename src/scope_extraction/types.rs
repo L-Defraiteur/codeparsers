@@ -399,6 +399,16 @@ pub struct ScopeInfo {
     pub scope_start_byte: usize,
     #[serde(default)]
     pub scope_end_byte: usize,
+    /// **L'empan exact du nœud** tree-sitter du scope, en octets : de son premier octet au
+    /// dernier (fin exclue). `scope_start_byte` et `scope_end_byte` restent à la ligne, contrat de
+    /// `File`, de la couverture et des lectures par tranche ; celui-ci dit où le scope commence et
+    /// finit **dans** ses lignes. Dans un fichier minifié d'une seule ligne, chaque fonction en a un
+    /// à elle, là où ses lignes sont celles de toutes (rag3weaver, 14 novembre 2026). `None` pour un
+    /// scope qui n'a pas de nœud (un trou entre déclarations, le texte brut).
+    #[serde(default)]
+    pub node_start_byte: Option<usize>,
+    #[serde(default)]
+    pub node_end_byte: Option<usize>,
     pub signature_start_line: usize,
     pub signature_end_line: usize,
     pub body_start_line: Option<usize>,

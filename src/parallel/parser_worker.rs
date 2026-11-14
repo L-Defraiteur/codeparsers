@@ -93,6 +93,8 @@ pub fn analyser_texte_brut(file_path: &str, content: &str) -> ScopeFileAnalysis 
         scope_end_line: lignes,
         scope_start_byte: 0,
         scope_end_byte: content.len(),
+        node_start_byte: None,
+        node_end_byte: None,
         signature_start_line: 1,
         signature_end_line: 1,
         body_start_line: None,
