@@ -129,6 +129,8 @@ pub struct RelationshipResolver {
     dependances: HashSet<String>,
     paquets_du_projet: HashSet<String>,
     regles: std::sync::Arc<crate::import_resolution::regles::Regles>,
+    /// Par langue : (dépendances, paquets du projet), normalisés par les variantes de la langue.
+    declares_par_langue: HashMap<String, (HashSet<String>, HashSet<String>)>,
 }
 
 /// L'export par défaut d'un module JS/TS.
@@ -160,6 +162,7 @@ impl RelationshipResolver {
             dependances: HashSet::new(),
             paquets_du_projet: HashSet::new(),
             regles: crate::import_resolution::regles::Regles::partagees(None),
+            declares_par_langue: HashMap::new(),
         }
     }
 
@@ -231,6 +234,17 @@ impl RelationshipResolver {
         self.dependances = self.options.declared_dependencies.iter().flatten().map(|n| normaliser(n)).collect();
         self.paquets_du_projet = self.options.project_packages.iter().flatten().map(|n| normaliser(n)).collect();
         self.regles = crate::import_resolution::regles::Regles::partagees(self.options.import_rules_dir.as_deref());
+        self.declares_par_langue = HashMap::new();
+        for (table, cote) in [(&self.options.declared_dependencies_by_language, 0), (&self.options.project_packages_by_language, 1)] {
+            for (langue, noms) in table.iter().flatten() {
+                let regle = self.regles.de_langue(langue);
+                let entree = self.declares_par_langue.entry(langue.clone()).or_default();
+                for n in noms {
+                    let n = regle.map_or_else(|| normaliser(n), |r| r.normaliser(n));
+                    if cote == 0 { entree.0.insert(n); } else { entree.1.insert(n); }
+                }
+            }
+        }
         // Les fichiers où un import relatif JS/TS peut aboutir : tout le projet quand on le dit.
         let connus: Vec<String> = projet.iter().map(|f| self.get_relative_path(f)).collect();
         self.known_files.extend(connus);
@@ -1001,7 +1015,7 @@ impl RelationshipResolver {
                             provenances: if !liaison {
                                 Vec::new()
                             } else if externe {
-                                vec![crate::import_resolution::provenance::provenance_d_un_import(&self.regles, &relative_path, &imp.source, false, &self.dependances, &self.paquets_du_projet)]
+                                vec![crate::import_resolution::provenance::provenance_d_un_import_declare(&self.regles, &relative_path, &imp.source, false, &crate::import_resolution::provenance::Declares { dependances: &self.dependances, paquets_du_projet: &self.paquets_du_projet, par_langue: Some(&self.declares_par_langue) })]
                             } else {
                                 vec![crate::import_resolution::provenance::Provenance::Project]
                             },
@@ -1227,7 +1241,7 @@ impl RelationshipResolver {
                     import_path: Some(imp.source.clone()),
                     sites: vec![site],
                     // Une bibliothèque n'est jamais du projet (les imports locaux sont sautés plus haut).
-                    provenances: vec![crate::import_resolution::provenance::provenance_d_un_import(&self.regles, &relative_path, &imp.source, false, &self.dependances, &self.paquets_du_projet)],
+                    provenances: vec![crate::import_resolution::provenance::provenance_d_un_import_declare(&self.regles, &relative_path, &imp.source, false, &crate::import_resolution::provenance::Declares { dependances: &self.dependances, paquets_du_projet: &self.paquets_du_projet, par_langue: Some(&self.declares_par_langue) })],
                     ..Default::default()
                 }),
             });

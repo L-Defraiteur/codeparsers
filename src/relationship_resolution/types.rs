@@ -166,6 +166,14 @@ pub struct RelationshipResolverOptions {
     /// **Les paquets du dépôt lui-même** (les crates d'un workspace Cargo, les paquets d'un workspace
     /// npm) : un import de l'un de ces noms est `project`, même écrit comme une dépendance.
     pub project_packages: Option<Vec<String>>,
+    /// **Les dépendances déclarées, par langue** (la clé est le `langue` d'un fichier de
+    /// `data/imports/` : « go », « rust », « python », « javascript », « c », « cpp », « csharp ») :
+    /// chaque nom se normalise par les variantes de sa langue, et un import ne se compare qu'à la
+    /// table de sa langue (un chemin Go garde sa casse). `declared_dependencies` reste la table de
+    /// toutes les langues, normalisée minuscules et tirets confondus.
+    pub declared_dependencies_by_language: Option<std::collections::HashMap<String, Vec<String>>>,
+    /// **Les paquets du dépôt, par langue** (même clé, même normalisation).
+    pub project_packages_by_language: Option<std::collections::HashMap<String, Vec<String>>>,
     /// **Le dossier des règles d'import du dépôt** (`<langue>.toml`, la forme de
     /// `data/imports/`) : un fichier y remplace la langue entière ; sans lui, les règles livrées.
     pub import_rules_dir: Option<String>,

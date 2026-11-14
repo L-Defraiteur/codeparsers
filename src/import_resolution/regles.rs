@@ -175,10 +175,15 @@ impl RegleDeLangue {
             return None;
         }
         let nom = self.candidats(source).into_iter().next()?;
+        self.plus_long_prefixe_du_nom(&nom, declares)
+    }
+
+    /// [`Self::plus_long_prefixe`] pour un nom de paquet déjà calculé (et normalisé comme `declares`).
+    pub fn plus_long_prefixe_du_nom<'a>(&self, nom: &str, declares: &'a std::collections::HashSet<String>) -> Option<&'a str> {
         let sep = self.nom_de_paquet.separateur.as_deref().unwrap_or("/");
         declares
             .iter()
-            .filter(|d| nom == **d || (nom.starts_with(d.as_str()) && nom[d.len()..].starts_with(sep)))
+            .filter(|d| nom == d.as_str() || (nom.starts_with(d.as_str()) && nom[d.len()..].starts_with(sep)))
             .max_by_key(|d| d.len())
             .map(String::as_str)
     }
@@ -206,6 +211,11 @@ pub struct Regles {
 
 impl Regles {
     /// Les règles de la langue d'un fichier (par son extension), si elle en a.
+    /// Les règles d'une langue par son nom (`langue` du fichier : « go », « rust », « python »…).
+    pub fn de_langue(&self, langue: &str) -> Option<&RegleDeLangue> {
+        self.par_extension.values().find(|r| r.langue == langue).map(|r| r.as_ref())
+    }
+
     pub fn de_fichier(&self, fichier: &str) -> Option<&RegleDeLangue> {
         let ext = fichier.rsplit('.').next().unwrap_or("");
         self.par_extension.get(ext).map(|r| r.as_ref())
