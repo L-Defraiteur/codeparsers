@@ -9,27 +9,6 @@ use crate::import_resolution::types::ImportType;
 use crate::import_resolution::types::ResolvedImport;
 use crate::import_resolution::types::TypeScriptConfig;
 
-pub const NODE_BUILTINS: &[&str] = &[
-    "assert", "buffer", "child_process", "cluster",
-    "console", "constants", "crypto", "dgram",
-    "dns", "domain", "events", "fs",
-    "http", "https", "module", "net",
-    "os", "path", "perf_hooks", "process",
-    "punycode", "querystring", "readline", "repl",
-    "stream", "string_decoder", "timers", "tls",
-    "tty", "url", "util", "v8",
-    "vm", "worker_threads", "zlib", "node:assert",
-    "node:buffer", "node:child_process", "node:cluster", "node:console",
-    "node:constants", "node:crypto", "node:dgram", "node:dns",
-    "node:domain", "node:events", "node:fs", "node:http",
-    "node:https", "node:module", "node:net", "node:os",
-    "node:path", "node:perf_hooks", "node:process", "node:punycode",
-    "node:querystring", "node:readline", "node:repl", "node:stream",
-    "node:string_decoder", "node:timers", "node:tls", "node:tty",
-    "node:url", "node:util", "node:v8", "node:vm",
-    "node:worker_threads", "node:zlib",
-];
-
 #[derive(Default)]
 pub struct TypeScriptImportResolver {
     ts_config: Option<TypeScriptConfig>,
@@ -195,7 +174,8 @@ impl TypeScriptImportResolver {
     /// Check if a module is a Node.js built-in (implements BaseImportResolver)
 
     pub fn is_builtin_module(&self, module_name: &str) -> bool {
-        NODE_BUILTINS.contains(&module_name)
+        // La liste vit dans `data/imports/javascript.toml` (les règles livrées).
+        crate::import_resolution::regles::Regles::partagees(None).de_fichier("x.js").is_some_and(|r| r.est_builtin(module_name))
     }
 
     /// Resolve an import with full details (implements BaseImportResolver)

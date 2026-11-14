@@ -12,7 +12,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Les fichiers livrés, compilés comme défaut : (langue, texte).
-const DEFAUTS: &[(&str, &str)] = &[("python", include_str!("../../data/imports/python.toml"))];
+const DEFAUTS: &[(&str, &str)] = &[
+    ("javascript", include_str!("../../data/imports/javascript.toml")),
+    ("python", include_str!("../../data/imports/python.toml")),
+];
 
 /// Une règle nommée : du code, choisi par les données.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
