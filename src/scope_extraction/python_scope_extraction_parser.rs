@@ -1317,14 +1317,16 @@ impl PythonScopeExtractionParser {
         let mut linked: HashMap<String, ImportReference> = HashMap::new();
 
         for r in references {
-            let matched = file_imports.iter().find(|imp| {
-                let alias: &str = imp.alias.as_deref().unwrap_or(&imp.imported);
-                if let Some(ref qualifier) = r.qualifier {
-                    alias == qualifier
-                } else {
-                    alias == r.identifier
+            let mut par_nom: HashMap<String, ImportReference> = HashMap::new();
+            for imp in file_imports {
+                par_nom.entry(imp.alias.clone().unwrap_or_else(|| imp.imported.clone())).or_insert_with(|| imp.clone());
+            }
+            for imp in file_imports {
+                if let Some(lie) = nom_lie_d_un_import_pointe(imp) {
+                    par_nom.entry(lie.to_string()).or_insert_with(|| imp.clone());
                 }
-            });
+            }
+            let matched = import_d_un_nom(&par_nom, r.qualifier.as_deref().unwrap_or(&r.identifier));
 
             if let Some(imp) = matched {
                 let key = format!("{}|{}|{}|{:?}",
@@ -1468,6 +1470,13 @@ impl PythonScopeExtractionParser {
                 alias_map.insert(key.to_string(), imp.clone());
             }
         }
+        // **Le nom lié d'un import pointé** (14 novembre 2026) : `import requests.adapters` lie `requests`
+        // dans le fichier ; ce nom renvoie à l'import, sans écraser un import exact de `requests`.
+        for imp in file_imports {
+            if let Some(lie) = nom_lie_d_un_import_pointe(imp) {
+                alias_map.entry(lie.to_string()).or_insert_with(|| imp.clone());
+            }
+        }
 
         // Build scope name → ScopeInfo[] index (snapshot for lookups)
         let mut scope_index: HashMap<String, Vec<ScopeInfo>> = HashMap::new();
@@ -1484,7 +1493,7 @@ impl PythonScopeExtractionParser {
             for r in scope.identifier_references.iter_mut() {
                 let alias_key = r.qualifier.as_deref().unwrap_or(&r.identifier);
 
-                if let Some(import_match) = alias_map.get(alias_key) {
+                if let Some(import_match) = import_d_un_nom(&alias_map, alias_key) {
                     r.kind = Some(IdentifierReferenceKind::Import);
                     r.source = Some(import_match.source.clone());
                     r.is_local_import = Some(import_match.is_local);
@@ -1794,4 +1803,28 @@ impl PythonScopeExtractionParser {
         false
     }
 
+}
+
+/// Le nom qu'un `import a.b.c` sans `as` lie dans le fichier : `a` (14 novembre 2026, ticket « un import
+/// Python pointé ne produit aucune bibliothèque »). `None` pour un import sans point, aliasé, ou relatif.
+fn nom_lie_d_un_import_pointe(imp: &ImportReference) -> Option<&str> {
+    if imp.alias.is_some() || imp.is_local || imp.kind != ImportReferenceKind::Namespace || !imp.imported.contains('.') {
+        return None;
+    }
+    imp.imported.split('.').next().filter(|s| !s.is_empty())
+}
+
+/// L'import qu'un nom (un qualificatif `requests.adapters.HTTPAdapter`, ou un identifiant) désigne : le nom
+/// exact, sinon le plus long de ses préfixes pointés (`requests.adapters`, puis `requests`).
+fn import_d_un_nom<'a>(table: &'a HashMap<String, ImportReference>, nom: &str) -> Option<&'a ImportReference> {
+    let mut cle = nom;
+    loop {
+        if let Some(imp) = table.get(cle) {
+            return Some(imp);
+        }
+        match cle.rfind('.') {
+            Some(i) => cle = &cle[..i],
+            None => return None,
+        }
+    }
 }
