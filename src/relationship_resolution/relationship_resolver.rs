@@ -239,9 +239,28 @@ impl RelationshipResolver {
             for (langue, noms) in table.iter().flatten() {
                 let regle = self.regles.de_langue(langue);
                 let entree = self.declares_par_langue.entry(langue.clone()).or_default();
+                let declares = self.options.import_renames.as_ref().and_then(|m| m.get(langue));
                 for n in noms {
-                    let n = regle.map_or_else(|| normaliser(n), |r| r.normaliser(n));
-                    if cote == 0 { entree.0.insert(n); } else { entree.1.insert(n); }
+                    // Le nom déclaré, puis les modules qu'il fournit sous un autre nom : ceux que le dépôt
+                    // déclare (`import_renames`), et ceux de la table livrée sauf si le dépôt la remplace.
+                    let mut tous = vec![n.clone()];
+                    if let Some(d) = declares {
+                        let cle = regle.map_or_else(|| normaliser(n), |r| r.normaliser(n));
+                        for (dist, modules) in &d.distributions {
+                            if regle.map_or_else(|| normaliser(dist), |r| r.normaliser(dist)) == cle {
+                                tous.extend(modules.iter().cloned());
+                            }
+                        }
+                    }
+                    if !declares.is_some_and(|d| d.replace) {
+                        if let Some(r) = regle {
+                            tous.extend(r.modules_de(n).iter().cloned());
+                        }
+                    }
+                    for n in tous {
+                        let n = regle.map_or_else(|| normaliser(&n), |r| r.normaliser(&n));
+                        if cote == 0 { entree.0.insert(n); } else { entree.1.insert(n); }
+                    }
                 }
             }
         }

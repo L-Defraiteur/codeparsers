@@ -105,9 +105,26 @@ pub struct RegleDeLangue {
     pub local: Local,
     #[serde(default)]
     pub nom_de_paquet: NomDePaquet,
+    /// Les distributions dont le module importé porte un autre nom (`PyYAML` → `yaml`) : un nom de
+    /// manifeste se compare aussi aux modules qu'il fournit.
+    #[serde(default)]
+    pub distributions: BTreeMap<String, Vec<String>>,
+    /// [`Self::distributions`] par nom normalisé (rempli au chargement).
+    #[serde(skip)]
+    distributions_normalisees: HashMap<String, Vec<String>>,
 }
 
 impl RegleDeLangue {
+    fn normaliser_les_distributions(&mut self) {
+        let table: HashMap<String, Vec<String>> = self.distributions.iter().map(|(d, m)| (self.normaliser(d), m.clone())).collect();
+        self.distributions_normalisees = table;
+    }
+
+    /// Les modules qu'une distribution déclarée fournit sous un autre nom, d'après la table livrée.
+    pub fn modules_de(&self, distribution: &str) -> &[String] {
+        self.distributions_normalisees.get(&self.normaliser(distribution)).map_or(&[], |m| m.as_slice())
+    }
+
     fn tete(&self, source: &str) -> Vec<String> {
         let s = source.trim();
         let sep = self.nom_de_paquet.separateur.as_deref().unwrap_or("");
@@ -211,6 +228,14 @@ pub struct Regles {
 
 impl Regles {
     /// Les règles de la langue d'un fichier (par son extension), si elle en a.
+    /// Les langues qui ont des règles (leur `langue`), triées : un consommateur y valide ses clés.
+    pub fn langues(&self) -> Vec<String> {
+        let mut l: Vec<String> = self.par_extension.values().map(|r| r.langue.clone()).collect();
+        l.sort();
+        l.dedup();
+        l
+    }
+
     /// Les règles d'une langue par son nom (`langue` du fichier : « go », « rust », « python »…).
     pub fn de_langue(&self, langue: &str) -> Option<&RegleDeLangue> {
         self.par_extension.values().find(|r| r.langue == langue).map(|r| r.as_ref())
@@ -239,6 +264,7 @@ impl Regles {
                     }
                 }
             }
+            regle.normaliser_les_distributions();
             let regle = Arc::new(regle);
             for ext in &regle.extensions {
                 r.par_extension.insert(ext.clone(), regle.clone());

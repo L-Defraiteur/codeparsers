@@ -174,9 +174,26 @@ pub struct RelationshipResolverOptions {
     pub declared_dependencies_by_language: Option<std::collections::HashMap<String, Vec<String>>>,
     /// **Les paquets du dépôt, par langue** (même clé, même normalisation).
     pub project_packages_by_language: Option<std::collections::HashMap<String, Vec<String>>>,
+    /// **Les renommages déclarés par le dépôt, par langue** (le champ `imports` du manifeste du
+    /// backend) : une distribution et les modules qu'elle fournit sous un autre nom. Ils complètent la
+    /// table livrée de la langue (`data/imports/<langue>.toml`, `[distributions]`), ou la remplacent si
+    /// `replace`.
+    pub import_renames: Option<std::collections::HashMap<String, ImportRenames>>,
     /// **Le dossier des règles d'import du dépôt** (`<langue>.toml`, la forme de
     /// `data/imports/`) : un fichier y remplace la langue entière ; sans lui, les règles livrées.
     pub import_rules_dir: Option<String>,
+}
+
+/// Les renommages d'une langue que déclare un dépôt.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImportRenames {
+    /// `true` : la table livrée de la langue ne compte plus, seule celle-ci.
+    #[serde(default)]
+    pub replace: bool,
+    /// Une distribution → les modules qu'elle fournit (`"mon-paquet": ["mon_module"]`).
+    #[serde(default)]
+    pub distributions: std::collections::HashMap<String, Vec<String>>,
 }
 
 /// Référence non résolue (pour debug/amélioration)
