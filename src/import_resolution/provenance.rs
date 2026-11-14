@@ -8,7 +8,6 @@
 use crate::import_resolution::c_import_resolver::{CPP_STDLIB_HEADERS, C_STDLIB_HEADERS};
 use crate::import_resolution::c_sharp_import_resolver::DOTNET_BCL_NAMESPACES;
 use crate::import_resolution::rust_import_resolver::RUST_STD_CRATES;
-use crate::import_resolution::type_script_import_resolver::NODE_BUILTINS;
 pub use crate::import_resolution::regles::Regles;
 
 /// La provenance d'un nom importé.
@@ -51,12 +50,6 @@ pub fn est_builtin_selon(regles: &Regles, fichier: &str, source: &str) -> bool {
     let s = source.trim();
     match ext {
         "rs" => s.split("::").next().is_some_and(|r| RUST_STD_CRATES.contains(&r)),
-        "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts" => {
-            let nu = s.strip_prefix("node:");
-            let tete = nu.unwrap_or(s).split('/').next().unwrap_or("");
-            // `node:x` est toujours le moteur ; sans préfixe, seulement un nom de la liste.
-            nu.is_some() || NODE_BUILTINS.contains(&tete)
-        }
         "c" | "h" => C_STDLIB_HEADERS.contains(&s),
         "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => CPP_STDLIB_HEADERS.contains(&s) || C_STDLIB_HEADERS.contains(&s),
         // Go : la règle de la chaîne d'outils — un chemin dont le premier élément n'a pas de point
@@ -85,14 +78,6 @@ pub fn nom_de_paquet_selon(regles: &Regles, fichier: &str, source: &str) -> Stri
     let s = source.trim();
     let tete = match ext {
         "rs" => s.split("::").next().unwrap_or(s).to_string(),
-        "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts" => {
-            let mut parts = s.split('/');
-            match (parts.next(), parts.next()) {
-                (Some(a), Some(b)) if a.starts_with('@') => format!("{a}/{b}"),
-                (Some(a), _) => a.to_string(),
-                _ => s.to_string(),
-            }
-        }
         "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => s.split('/').next().unwrap_or(s).trim_end_matches(".h").to_string(),
         _ => s.to_string(),
     };

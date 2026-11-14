@@ -1,0 +1,29 @@
+# Les règles d'import de JavaScript et de TypeScript (codeparsers, `import_resolution::regles`).
+# Un fichier `javascript.toml` dans `import_rules_dir` remplace ce fichier entier.
+langue = "javascript"
+extensions = ["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts"]
+
+[builtin]
+source = "require('module').builtinModules, Node 22.23.3 (premier segment, 56 noms)"
+# `node:x` est toujours le moteur (`node:sqlite`, `node:test` n'existent que sous ce préfixe).
+prefixes = ["node:"]
+noms = [
+    "_http_agent", "_http_client", "_http_common", "_http_incoming", "_http_outgoing",
+    "_http_server", "_stream_duplex", "_stream_passthrough", "_stream_readable",
+    "_stream_transform", "_stream_wrap", "_stream_writable", "_tls_common", "_tls_wrap", "assert",
+    "async_hooks", "buffer", "child_process", "cluster", "console", "constants", "crypto", "dgram",
+    "diagnostics_channel", "dns", "domain", "events", "fs", "http", "http2", "https", "inspector",
+    "module", "net", "os", "path", "perf_hooks", "process", "punycode", "querystring", "readline",
+    "repl", "stream", "string_decoder", "sys", "timers", "tls", "trace_events", "tty", "url",
+    "util", "v8", "vm", "wasi", "worker_threads", "zlib",
+]
+
+[local]
+prefixes = ["./", "../"]
+
+[nom_de_paquet]
+separateur = "/"
+garder = 1
+# `@scope/pkg/sub` → `@scope/pkg`.
+garder_si_le_premier_commence_par = { "@" = 2 }
+variantes = ["tiret_souligne", "casse"]

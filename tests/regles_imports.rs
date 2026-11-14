@@ -4,7 +4,7 @@
 //! remplace **la langue entière**, et l'origine des règles se dit ; un fichier illisible retombe sur le
 //! défaut en le disant.
 
-use codeparsers::import_resolution::provenance::{est_builtin_selon, nom_de_paquet_selon, Provenance};
+use codeparsers::import_resolution::provenance::{est_builtin, est_builtin_selon, nom_de_paquet_selon, Provenance};
 use codeparsers::import_resolution::regles::Regles;
 use codeparsers::parallel::project_parser::{ParseProjectOptions, ProjectParser, ProjectParserOptions};
 use codeparsers::relationship_resolution::types::RelationshipResolverOptions;
@@ -12,10 +12,15 @@ use std::collections::HashMap;
 
 /// Un dossier de règles neuf sous le target du test, avec `python.toml` = `texte`.
 fn dossier(nom: &str, texte: &str) -> String {
+    dossier_de(nom, "python", texte)
+}
+
+/// Un dossier de règles neuf sous le target du test, avec `<langue>.toml` = `texte`.
+fn dossier_de(nom: &str, langue: &str, texte: &str) -> String {
     let d = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("regles_imports").join(nom);
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
-    std::fs::write(d.join("python.toml"), texte).unwrap();
+    std::fs::write(d.join(format!("{langue}.toml")), texte).unwrap();
     d.display().to_string()
 }
 
@@ -93,4 +98,27 @@ fn le_resolveur_lit_le_dossier_du_depot() {
     assert_eq!(provenance(None, "os"), Some(Provenance::Builtin));
     assert_eq!(provenance(Some(d.clone()), "requests"), Some(Provenance::Builtin));
     assert_eq!(provenance(Some(d), "os"), Some(Provenance::Unknown));
+}
+
+#[test]
+fn javascript_la_liste_de_node_et_le_scope() {
+    let r = Regles::charger(None);
+    assert_eq!(r.origines.get("javascript").map(String::as_str), Some("défaut"), "{:?}", r.origines);
+    // `async_hooks`, `diagnostics_channel` et `http2` manquaient à l'ancienne liste du code.
+    for nom in ["fs", "fs/promises", "async_hooks", "diagnostics_channel", "http2", "node:sqlite", "node:test"] {
+        assert!(est_builtin("a.ts", nom), "{nom} est du moteur");
+    }
+    assert!(!est_builtin("a.js", "lodash/fp"));
+    assert_eq!(nom_de_paquet_selon(&r, "a.tsx", "@Scope/my-pkg/sub"), "@scope/my_pkg");
+    assert_eq!(nom_de_paquet_selon(&r, "a.mjs", "lodash/fp"), "lodash");
+}
+
+#[test]
+fn javascript_un_dossier_remplace_la_langue_sans_toucher_python() {
+    let d = dossier_de("javascript", "javascript", "langue = \"javascript\"\nextensions = [\"js\", \"ts\"]\n\n[builtin]\nnoms = [\"electron\"]\n");
+    let r = Regles::charger(Some(&d));
+    assert!(est_builtin_selon(&r, "a.ts", "electron"));
+    assert!(!est_builtin_selon(&r, "a.js", "fs"), "la liste de Node ne se fusionne pas");
+    assert!(est_builtin_selon(&r, "a.py", "os"), "python garde ses règles livrées");
+    assert_eq!(r.origines["python"], "défaut");
 }
