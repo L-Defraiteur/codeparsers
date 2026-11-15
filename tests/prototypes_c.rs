@@ -64,3 +64,20 @@ fn le_meme_en_cpp() {
     assert!(!refs.contains(&"libre".to_string()) && !refs.contains(&"a".to_string()), "{refs:?}");
     assert_eq!(s.iter().filter(|x| x.name == "Avance").count(), 1, "une déclaration anticipée n'est pas une définition");
 }
+
+/// **Une source C relève ses `#include`** comme une source C++ (`extract_cpp_includes`) : la visibilité
+/// par les includes de rag3weaver lit cette liste. Une source `.c` n'en avait aucune — tout appel C vers
+/// un autre fichier était invisible (`examples/c/main.c` → `rag3db_connection_init`, 15 novembre 2026).
+#[test]
+fn une_source_c_releve_ses_includes() {
+    let chemin = "/virtual/main.c".to_string();
+    let a = ProjectParser::new(ProjectParserOptions { verbose: false }).parse_project(ParseProjectOptions {
+        root: "/virtual".to_string(),
+        files: vec![chemin.clone()],
+        content_map: Some(HashMap::from([(chemin, "#include <stdio.h>\n\n#include \"rag3db.h\"\n\nint main() {\n    return 0;\n}\n".to_string())])),
+        resolve_relationships: Some(false),
+        resolver_options: None,
+    });
+    let includes: Vec<String> = a.files.values().flat_map(|f| f.import_references.iter().map(|i| i.source.clone())).collect();
+    assert_eq!(includes, vec!["stdio.h".to_string(), "rag3db.h".to_string()]);
+}

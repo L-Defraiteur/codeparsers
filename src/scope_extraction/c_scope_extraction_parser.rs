@@ -125,7 +125,9 @@ impl CScopeExtractionParser {
         let tree = parser.parse(masque.as_ref(), None).expect("failed to parse");
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
 
-        let structured_imports = self.base.extract_structured_imports(content, None);
+        // Les `#include`, comme en C++ : la visibilité par les includes (rag3weaver) les lit. La voie
+        // générique n'en voyait aucun, et une source C ne voyait aucun autre fichier.
+        let structured_imports = super::cpp_scope_extraction_parser::extract_cpp_includes(root_node, content);
         let mut scopes = Vec::new();
         self.extract_scopes(root_node, &mut scopes, content, 0, None, &structured_imports, file_path);
         let file_scopes = self.base.extract_file_scopes(root_node, content, &scopes, file_path, &structured_imports);

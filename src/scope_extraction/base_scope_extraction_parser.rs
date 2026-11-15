@@ -4980,11 +4980,24 @@ pub fn masquer_les_macros_d_attribut(content: &str) -> std::borrow::Cow<'_, str>
     let re2 = LIGNE.get_or_init(|| {
         regex::Regex::new(r"(?m)^[ \t]*([A-Z][A-Z0-9_]*_(?:API|EXPORT|EXPORTS|PUBLIC|DLL))[ \t]+[A-Za-z_:~]").expect("motif")
     });
-    if !re.is_match(content) && !re2.is_match(content) {
+    // **La garde `extern "C"` d'un en-tête C** : `#ifdef __cplusplus` / `extern "C" {` / `#endif`,
+    // puis plus loin `#ifdef __cplusplus` / `}` / `#endif`. L'accolade ouverte dans un `#ifdef` et
+    // fermée dans un autre faisait perdre à tree-sitter tout ce qui suit : les prototypes de l'API C
+    // de rag3db.h n'étaient plus des déclarations du fichier, et un appel C ne voyait pas sa
+    // définition C++ (ticket du 15 novembre 2026). Les deux lignes de garde sont masquées : le
+    // contenu reste au niveau du fichier, comme pour un compilateur C.
+    static GARDE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re3 = GARDE.get_or_init(|| {
+        regex::Regex::new(
+            r#"(?m)^[ \t]*#[ \t]*if(?:def[ \t]+__cplusplus|[ \t]+defined[ \t]*\(?[ \t]*__cplusplus[ \t]*\)?)[ \t]*(?://[^\n]*)?\r?\n([ \t]*(?:extern[ \t]+"C"[ \t]*\{|\})[ \t]*(?://[^\n]*)?)\r?\n[ \t]*#[ \t]*endif"#,
+        )
+        .expect("motif")
+    });
+    if !re.is_match(content) && !re2.is_match(content) && !re3.is_match(content) {
         return std::borrow::Cow::Borrowed(content);
     }
     let mut octets = content.as_bytes().to_vec();
-    for c in re.captures_iter(content).chain(re2.captures_iter(content)) {
+    for c in re.captures_iter(content).chain(re2.captures_iter(content)).chain(re3.captures_iter(content)) {
         if let Some(m) = c.get(1) {
             for o in &mut octets[m.start()..m.end()] {
                 if !o.is_ascii_whitespace() {
