@@ -102,6 +102,10 @@ pub struct RelationshipResolver {
     import_resolvers: HashMap<SupportedLanguage, Box<dyn BaseImportResolver>>,
     scope_mapping: GlobalScopeMapping,
     uuid_mapping: UuidToScopeMapping,
+    /// **L'uuid de chaque scope, par sa position** (fichier, octets, nom) : calculé une fois par
+    /// `build_global_scope_mapping`, avec le rang d'apparition à partir du second homonyme de mêmes
+    /// entrées, pour que chaque appel de `generate_uuid` voie le même.
+    uuid_par_position: HashMap<(String, usize, usize, String), String>,
     files_map: HashMap<String, FileInfo>,
     external_libraries_map: HashMap<String, ExternalLibraryInfo>,
     /// Les noms de dossiers et de modules du projet analysé : un import
@@ -149,6 +153,7 @@ impl RelationshipResolver {
             import_resolvers: HashMap::new(),
             scope_mapping: GlobalScopeMapping::default(),
             uuid_mapping: UuidToScopeMapping::default(),
+            uuid_par_position: HashMap::new(),
             files_map: HashMap::new(),
             external_libraries_map: HashMap::new(),
             project_modules: HashSet::new(),
@@ -435,6 +440,7 @@ impl RelationshipResolver {
     fn build_global_scope_mapping(&mut self, parsed_files: &ParsedFilesMap) {
         self.scope_mapping.clear();
         self.uuid_mapping.clear();
+        self.uuid_par_position.clear();
         self.field_types.clear();
         self.field_types_local.clear();
         self.return_types.clear();
@@ -447,8 +453,18 @@ impl RelationshipResolver {
             let relative_path = self.get_relative_path(file_path);
             self.known_files.insert(relative_path.clone());
 
+            // **Un uuid par scope, même entre homonymes** (ticket du 18 octobre 2026) : deux scopes de mêmes
+            // fichier, nom, genre et signature (`void JsonMutWrapper()` reconstruit pour quatre
+            // constructeurs, deux `impl Coerce for …`) avaient le même uuid, et les arêtes de tous se
+            // rabattaient sur le dernier chez le consommateur. Le premier garde son uuid ; les suivants
+            // ajoutent leur rang d'apparition dans le fichier.
+            let mut rangs: HashMap<String, usize> = HashMap::new();
             for scope in &analysis.scopes {
-                let uuid = self.generate_uuid(scope, &relative_path);
+                let base = self.generate_base_uuid(scope, &relative_path);
+                let rang = rangs.entry(base.clone()).or_insert(0);
+                let uuid = if *rang == 0 { base.clone() } else { blake3_uuid(&format!("{base}#{rang}")) };
+                *rang += 1;
+                self.uuid_par_position.insert((relative_path.clone(), scope.scope_start_byte, scope.scope_end_byte, scope.name.clone()), uuid.clone());
 
                 let entry = ScopeMappingEntry {
                     uuid: uuid.clone(),
@@ -1444,6 +1460,14 @@ impl RelationshipResolver {
     /// Generate deterministic UUID for a scope.
     /// Uses blake3 (same as rag3weaver) for consistency.
     fn generate_uuid(&self, scope: &ScopeInfo, file_path: &str) -> String {
+        self.uuid_par_position
+            .get(&(file_path.to_string(), scope.scope_start_byte, scope.scope_end_byte, scope.name.clone()))
+            .cloned()
+            .unwrap_or_else(|| self.generate_base_uuid(scope, file_path))
+    }
+
+    /// L'uuid d'un scope sans son rang : fichier, nom, genre et hash du parent et de la signature.
+    fn generate_base_uuid(&self, scope: &ScopeInfo, file_path: &str) -> String {
         let signature_hash = self.get_signature_hash(scope);
         let type_str = scope_type_str(&scope.r#type);
         let input = format!("{file_path}:{name}:{type_str}:{signature_hash}", name = scope.name);
