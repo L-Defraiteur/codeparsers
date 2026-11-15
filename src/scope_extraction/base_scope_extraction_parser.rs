@@ -2416,7 +2416,11 @@ impl BaseScopeExtractionParser {
                 // Un cast du langage (`static_cast<Foo*>(x)->f()`) : le type
                 // est l'argument du gabarit.
                 r.qualifier_type = Some(t);
-            } else if let Some(q) = r.qualifier.as_deref() {
+            } else if let Some(q) = r.qualifier.as_deref().filter(|q| {
+                // `facts::digest(…)` à côté d'une locale `facts` : le chemin
+                // de module ne prend pas le type de la locale homonyme.
+                !r.context.as_deref().is_some_and(|c| c.contains(&format!("{q}::{}", r.identifier)))
+            }) {
                 r.qualifier_deferred =
                     crate::scope_extraction::usage::deferred_with_bindings(q, &types, &retours, &liees, englobant.as_deref(), champ_implicite);
             }

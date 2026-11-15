@@ -351,6 +351,13 @@ pub fn peel_complet(
     Some(t)
 }
 
+/// Le retour écrit nomme-t-il un des paramètres de gabarit de sa méthode
+/// (`fn with_backend<R>(…) -> Result<R, String>`) ? Il ne dit alors pas le type
+/// rendu : c'est l'appelant qui le fixe.
+pub fn nomme_un_parametre(ecrit: &str, params: &[String]) -> bool {
+    ecrit.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|mot| params.iter().any(|p| p == mot))
+}
+
 /// `Result<Self, E>` dans `impl GraphTool` : `Result<GraphTool, E>`.
 pub fn remplacer_self(ecrit: &str, classe: &str) -> String {
     let mut out = String::new();

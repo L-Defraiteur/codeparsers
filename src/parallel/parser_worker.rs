@@ -318,7 +318,8 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
             if let Some(rt) = s.return_type.as_ref().filter(|t| !t.trim().is_empty()) {
                 let v = (rt.clone(), s.parent.clone());
                 retours.entry(s.name.clone()).and_modify(|o| *o = None).or_insert(Some(v));
-                if let Some(parent) = s.parent.as_deref().and_then(base_type_name) {
+                let params: Vec<String> = s.generic_parameters.iter().flatten().map(|p| p.name.clone()).collect();
+                if let Some(parent) = s.parent.as_deref().and_then(base_type_name).filter(|_| !crate::scope_extraction::receveur::nomme_un_parametre(rt, &params)) {
                     methodes
                         .entry((parent, s.name.clone()))
                         .and_modify(|o| {

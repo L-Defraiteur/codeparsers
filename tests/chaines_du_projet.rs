@@ -43,3 +43,23 @@ fn une_locale_liee_a_un_appel_par_chemin_lit_son_type() {
     assert_eq!(reference("quatre", "bind").qualifier_type.as_deref(), Some("GraphTool"), "map_err(…)?");
     assert_eq!(reference("cinq", "description").qualifier_type.as_deref(), Some("GraphTool"), "unwrap()");
 }
+
+#[test]
+fn un_retour_qui_nomme_un_parametre_de_gabarit_ne_type_pas() {
+    // `with_backend<R>` rend `Result<R, String>` : `R` n'est pas un type, c'est l'appelant qui le fixe.
+    let src = "pub struct Hote;\nimpl Hote {\n    fn with_backend<R>(&self, f: impl Fn(&u8) -> R) -> Result<R, String> { Ok(f(&0)) }\n    pub fn relecture(&self) -> Result<(), String> {\n        let apres = self.with_backend(|b| ailleurs::prepare(b))?;\n        apres.recharger();\n        Ok(())\n    }\n}\n";
+    let chemin = "/virtual/hote.rs".to_string();
+    let a = ProjectParser::new(ProjectParserOptions { verbose: false }).parse_project(ParseProjectOptions {
+        root: "/virtual".to_string(),
+        files: vec![chemin.clone()],
+        content_map: Some(HashMap::from([(chemin, src.to_string())])),
+        resolve_relationships: Some(false),
+        resolver_options: None,
+    });
+    let types: Vec<Option<String>> = a
+        .files
+        .values()
+        .flat_map(|f| f.scopes.iter().filter(|s| s.name == "relecture").flat_map(|s| s.identifier_references.iter().filter(|r| r.identifier == "recharger").map(|r| r.qualifier_type.clone())))
+        .collect();
+    assert_eq!(types, vec![None], "{types:?}");
+}

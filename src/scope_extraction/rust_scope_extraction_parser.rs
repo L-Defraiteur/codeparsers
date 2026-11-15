@@ -1326,7 +1326,9 @@ impl RustScopeExtractionParser {
             return_type,
             return_type_info: None,
             modifiers,
-            generic_parameters: None,
+            // `fn with_backend<R>(…) -> Result<R, _>` : `R` se sait paramètre, pas type (le pelage
+            // d'une chaîne ne le prend pas pour le type rendu).
+            generic_parameters: Some(self.extract_rust_generics(node, content)).filter(|g| !g.is_empty()),
             heritage_clauses: None,
             decorator_details: None,
             content: node_content.clone(),
