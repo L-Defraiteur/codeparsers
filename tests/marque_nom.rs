@@ -51,3 +51,23 @@ fn une_variante_d_enum_lit_son_type_par_le_chemin() {
     assert!(!r.is_empty(), "la variante est une référence");
     assert!(r.iter().all(|x| x.qualifier_type.as_deref() == Some("Value")), "Value::Float : le type Value — {r:?}");
 }
+
+#[test]
+fn un_chemin_de_module_n_est_pas_la_locale_homonyme() {
+    let src = "mod metadata {\n    pub fn decode_rows(x: u8) -> u8 { x }\n}\npub fn charge() -> u8 {\n    let metadata = metadata::decode_rows(1);\n    metadata\n}\n";
+    let r = references(src, "charge", "decode_rows");
+    assert!(!r.is_empty(), "l'appel est une référence");
+    assert!(r.iter().all(|x| !x.receiver_type_unread), "metadata:: est un module — {r:?}");
+}
+
+#[test]
+fn une_methode_du_projet_sur_une_locale_sans_type_ne_le_dit_pas() {
+    // `aller` n'est pas une méthode de std : le lien par le nom reste possible entre fichiers.
+    let src = "pub fn parcours(ctx: &mut Ctx) -> Option<()> {\n    let n = ctx.prends(\"n\").and_then(|p| conv(p))?;\n    n.aller();\n    n.is_empty();\n    Some(())\n}\n";
+    let aller = references(src, "parcours", "aller");
+    assert_eq!(aller.len(), 1, "{aller:?}");
+    assert!(aller[0].qualifier_type.is_none() && aller[0].qualifier_deferred.is_none(), "{aller:?}");
+    assert!(!aller[0].receiver_type_unread, "aller : méthode du projet — {aller:?}");
+    let vide = references(src, "parcours", "is_empty");
+    assert!(vide.iter().all(|x| x.receiver_type_unread), "is_empty : méthode de std — {vide:?}");
+}

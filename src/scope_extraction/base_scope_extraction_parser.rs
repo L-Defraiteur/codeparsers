@@ -2428,7 +2428,10 @@ impl BaseScopeExtractionParser {
             let locale = r.qualifier.as_deref().is_some_and(|q| {
                 let simple = !q.is_empty() && q.chars().all(|c| c.is_alphanumeric() || c == '_');
                 let instance = matches!(q, "self" | "this" | "Self");
-                simple && !instance && (exclude.contains(q) || exclude.contains(&local_binding(q)) || exclude.contains(&typed_binding(q)))
+                // `metadata::decode_rows(…)` dans `let metadata = …` : le
+                // chemin de module, pas la locale homonyme.
+                let chemin = r.context.as_deref().is_some_and(|c| c.contains(&format!("{q}::{}", r.identifier)));
+                simple && !instance && !chemin && (exclude.contains(q) || exclude.contains(&local_binding(q)) || exclude.contains(&typed_binding(q)))
             });
             let appel = r.usage == Some(crate::scope_extraction::types::UsageKind::Call);
             if r.qualifier_type.is_some() {
@@ -2436,13 +2439,19 @@ impl BaseScopeExtractionParser {
             } else if r.qualifier_deferred.is_some() && appel && locale {
                 r.untyped_receiver = true;
             }
-            // **Un appel sur une locale dont aucun type ne se lit, ni sur
-            // place ni ailleurs** (`let reste = WAIT.saturating_sub(…);
-            // reste.is_zero()`) : dans le fichier, le lien par le nom reste,
-            // marqué (décision du 11 octobre 2026) ; entre fichiers, il ne se
-            // fait jamais — une méthode standard n'est pas l'homonyme d'un
-            // autre fichier.
-            r.receiver_type_unread = appel && locale && r.qualifier_type.is_none() && r.qualifier_deferred.is_none();
+            // **Un appel de méthode standard sur une locale dont aucun type ne
+            // se lit, ni sur place ni ailleurs** (`let reste =
+            // WAIT.saturating_sub(…); reste.is_zero()`) : dans le fichier, le
+            // lien par le nom reste, marqué (décision du 11 octobre 2026) ;
+            // entre fichiers, il ne se fait pas — `is_zero` est celui de
+            // `Duration`, pas l'homonyme d'un autre fichier. Une méthode
+            // propre au projet (`backend.reload()`) garde son lien par le nom
+            // (c7, 15 novembre 2026) ; la liste est `data/std_methods`.
+            r.receiver_type_unread = appel
+                && locale
+                && r.qualifier_type.is_none()
+                && r.qualifier_deferred.is_none()
+                && crate::scope_extraction::standard::is_standard_method_of(&self.language, &r.identifier);
         }
         references.into_values().collect()
     }

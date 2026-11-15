@@ -1129,6 +1129,20 @@ impl PythonScopeExtractionParser {
             } else if let Some(q) = r.qualifier.as_deref() {
                 r.qualifier_deferred = crate::scope_extraction::usage::deferred_for_qualifier(q, &types, &retours, englobant.as_deref(), false);
             }
+            // Un appel de méthode standard sur une locale sans type lu : comme
+            // en Rust et en C++ (`base_scope_extraction_parser`), il ne se
+            // relie pas par le nom entre fichiers.
+            let locale = r.qualifier.as_deref().is_some_and(|q| {
+                !q.is_empty()
+                    && q != "self"
+                    && q.chars().all(|c| c.is_alphanumeric() || c == '_')
+                    && (exclude.contains(q) || exclude.contains(&super::base_scope_extraction_parser::local_binding(q)))
+            });
+            r.receiver_type_unread = locale
+                && r.usage == Some(crate::scope_extraction::types::UsageKind::Call)
+                && r.qualifier_type.is_none()
+                && r.qualifier_deferred.is_none()
+                && crate::scope_extraction::standard::is_standard_method_of(&crate::parallel::parser_worker::SupportedLanguage::Python, &r.identifier);
         }
         super::base_scope_extraction_parser::without_declaring_names(node, references.into_values().collect())
     }
