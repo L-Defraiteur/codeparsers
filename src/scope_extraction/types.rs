@@ -122,6 +122,13 @@ pub struct IdentifierReference {
     /// pas par le seul nom (décision de Lucie, 11 octobre 2026).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub untyped_receiver: bool,
+    /// **Un appel sur une locale dont aucun type ne se lit, ni sur place ni
+    /// ailleurs** (pas de `qualifier_type`, pas de `qualifier_deferred`) :
+    /// `reste.is_zero()` après `let reste = WAIT.saturating_sub(…)`. Le
+    /// résolveur du fichier garde son lien par le nom, marqué ; un
+    /// consommateur qui résout entre fichiers ne le relie pas par le seul nom.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub receiver_type_unread: bool,
 }
 
 /// D'où vient un nom importé : le module (`crate::estimate`, `pkg.models`),

@@ -2406,14 +2406,11 @@ impl BaseScopeExtractionParser {
                 crate::scope_extraction::receveur::receiver_type(q, &pleins.at(debut_de_ligne + r.column.unwrap_or(0)))
             }) {
                 r.qualifier_type = Some(t);
-            } else if let Some(t) = r
-                .qualifier
-                .as_deref()
-                .filter(|_| r.usage == Some(crate::scope_extraction::types::UsageKind::Call))
-                .and_then(crate::scope_extraction::receveur::type_of_path)
-            {
-                // Un appel par chemin sur un type (`Catalog::Get(…)`) : le
-                // type est le receveur.
+            } else if let Some(t) = r.qualifier.as_deref().and_then(crate::scope_extraction::receveur::type_of_path) {
+                // Un chemin sur un type (`Catalog::Get(…)`, une variante
+                // `Value::Float(f) =>`, une constante `Foo::MAX`) : le type
+                // est le receveur. Une variante n'est pas un scope : le type
+                // lu la garde de l'homonyme d'un autre type.
                 r.qualifier_type = Some(t);
             } else if let Some(t) = r.qualifier.as_deref().and_then(crate::scope_extraction::usage::builtin_cast_type) {
                 // Un cast du langage (`static_cast<Foo*>(x)->f()`) : le type
@@ -2428,17 +2425,24 @@ impl BaseScopeExtractionParser {
             // aussi. Le résolveur lit le type différé s'il le trouve ; sinon
             // il ne la reliait déjà pas par le nom — la marque lui donne sa
             // raison, et le dit au consommateur. Un type lu lève la marque.
+            let locale = r.qualifier.as_deref().is_some_and(|q| {
+                let simple = !q.is_empty() && q.chars().all(|c| c.is_alphanumeric() || c == '_');
+                let instance = matches!(q, "self" | "this" | "Self");
+                simple && !instance && (exclude.contains(q) || exclude.contains(&local_binding(q)) || exclude.contains(&typed_binding(q)))
+            });
+            let appel = r.usage == Some(crate::scope_extraction::types::UsageKind::Call);
             if r.qualifier_type.is_some() {
                 r.untyped_receiver = false;
-            } else if r.qualifier_deferred.is_some() && r.usage == Some(crate::scope_extraction::types::UsageKind::Call) {
-                if let Some(q) = r.qualifier.as_deref() {
-                    let simple = !q.is_empty() && q.chars().all(|c| c.is_alphanumeric() || c == '_');
-                    let instance = matches!(q, "self" | "this" | "Self");
-                    if simple && !instance && (exclude.contains(q) || exclude.contains(&local_binding(q)) || exclude.contains(&typed_binding(q))) {
-                        r.untyped_receiver = true;
-                    }
-                }
+            } else if r.qualifier_deferred.is_some() && appel && locale {
+                r.untyped_receiver = true;
             }
+            // **Un appel sur une locale dont aucun type ne se lit, ni sur
+            // place ni ailleurs** (`let reste = WAIT.saturating_sub(…);
+            // reste.is_zero()`) : dans le fichier, le lien par le nom reste,
+            // marqué (décision du 11 octobre 2026) ; entre fichiers, il ne se
+            // fait jamais — une méthode standard n'est pas l'homonyme d'un
+            // autre fichier.
+            r.receiver_type_unread = appel && locale && r.qualifier_type.is_none() && r.qualifier_deferred.is_none();
         }
         references.into_values().collect()
     }
@@ -2507,6 +2511,7 @@ impl BaseScopeExtractionParser {
                         target_scope: None,
                         is_local_import: None,
                         untyped_receiver: false,
+                        receiver_type_unread: false,
                     });
                 }
             }
@@ -2618,6 +2623,7 @@ impl BaseScopeExtractionParser {
                     target_scope: None,
                     is_local_import: None,
                     untyped_receiver: ecarte_avant,
+                    receiver_type_unread: false,
                 });
             }
             return;
@@ -3071,6 +3077,7 @@ impl BaseScopeExtractionParser {
                         target_scope: None,
                         is_local_import: None,
                         untyped_receiver: false,
+                        receiver_type_unread: false,
                     });
                     suivis.insert(symbol_name.to_string());
                 }
@@ -3128,6 +3135,7 @@ impl BaseScopeExtractionParser {
                             target_scope: Some(target_id),
                             is_local_import: None,
                             untyped_receiver: false,
+                            receiver_type_unread: false,
                         });
                         continue;
                     }
@@ -3150,6 +3158,7 @@ impl BaseScopeExtractionParser {
                         target_scope: None,
                         is_local_import: Some(import_match.is_local),
                         untyped_receiver: false,
+                        receiver_type_unread: false,
                     });
                     if !scope.import_references.iter().any(|ir| ir.source == import_match.source && ir.imported == import_match.imported) {
                         scope.import_references.push(import_match.clone());
@@ -3199,6 +3208,7 @@ impl BaseScopeExtractionParser {
                                 target_scope: Some(target_id),
                                 is_local_import: None,
                                 untyped_receiver: false,
+                                receiver_type_unread: false,
                             });
                             continue;
                         }
@@ -3220,6 +3230,7 @@ impl BaseScopeExtractionParser {
                             target_scope: None,
                             is_local_import: Some(import_match.is_local),
                             untyped_receiver: false,
+                            receiver_type_unread: false,
                         });
                         if !scope.import_references.iter().any(|ir| ir.source == import_match.source && ir.imported == import_match.imported) {
                             scope.import_references.push(import_match.clone());
@@ -3297,6 +3308,7 @@ impl BaseScopeExtractionParser {
                         target_scope: Some(ref_info.target_scope),
                         is_local_import: None,
                         untyped_receiver: false,
+                        receiver_type_unread: false,
                     });
                 }
             }
@@ -3997,6 +4009,7 @@ impl BaseScopeExtractionParser {
                     target_scope: None,
                     is_local_import: None,
                     untyped_receiver: false,
+                    receiver_type_unread: false,
                 });
             }
         }

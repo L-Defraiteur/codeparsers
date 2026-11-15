@@ -1095,6 +1095,7 @@ impl GoScopeExtractionParser {
                                 target_scope: None,
                                 is_local_import: None,
                                 untyped_receiver: false,
+                                receiver_type_unread: false,
                             });
                         }
                     }
@@ -1129,6 +1130,7 @@ impl GoScopeExtractionParser {
                                 target_scope: None,
                                 is_local_import: None,
                                 untyped_receiver: false,
+                                receiver_type_unread: false,
                             });
                         }
                     }
@@ -1170,6 +1172,7 @@ impl GoScopeExtractionParser {
                                 target_scope: None,
                                 is_local_import: None,
                                 untyped_receiver: false,
+                                receiver_type_unread: false,
                             });
                         }
                     }
@@ -1209,6 +1212,7 @@ impl GoScopeExtractionParser {
                                 target_scope: None,
                                 is_local_import: None,
                                 untyped_receiver: false,
+                                receiver_type_unread: false,
                             });
                         }
                     }
