@@ -343,15 +343,34 @@ impl CppScopeExtractionParser {
             let mut cursor = param_list.walk();
             for child in param_list.children(&mut cursor) {
                 if child.kind() == "parameter_declaration" {
-                    let mut inner_cursor = child.walk();
-                    let type_node = child.children(&mut inner_cursor)
-                        .find(|c| c.kind() == "primitive_type" || c.kind() == "type_identifier");
-
-                    let mut inner_cursor = child.walk();
-                    let identifier_node = child.children(&mut inner_cursor)
-                        .find(|c| c.kind() == "identifier");
-
-                    let param_type = type_node.map(|n| self.base.get_node_text(Some(n), content));
+                    // **Le nom par le déclarateur, même imbriqué** (15 novembre 2026) : `T* p`, `T& r`, `T&& r`
+                    // portent leur nom dans un `pointer_declarator` ou un `reference_declarator` ; il ne se
+                    // trouvait que parmi les enfants directs, et le paramètre disparaissait. Le type est le texte
+                    // écrit avant le nom (`Foo*`, `const Foo&`), pas le seul type nu.
+                    let mut identifier_node = child.child_by_field_name("declarator");
+                    while let Some(n) = identifier_node {
+                        if n.kind() == "identifier" {
+                            break;
+                        }
+                        identifier_node = n.child_by_field_name("declarator").or_else(|| {
+                            let mut c = n.walk();
+                            let enfant = n.children(&mut c).find(|e| e.kind() == "identifier" || e.kind().ends_with("_declarator"));
+                            enfant
+                        });
+                    }
+                    let identifier_node = identifier_node.filter(|n| n.kind() == "identifier");
+                    let param_type = match identifier_node {
+                        Some(n) => {
+                            let ecrit = content[child.start_byte()..n.start_byte()].split_whitespace().collect::<Vec<_>>().join(" ");
+                            (!ecrit.is_empty()).then_some(ecrit)
+                        }
+                        None => {
+                            let mut inner_cursor = child.walk();
+                            let type_node = child.children(&mut inner_cursor)
+                                .find(|c| c.kind() == "primitive_type" || c.kind() == "type_identifier");
+                            type_node.map(|n| self.base.get_node_text(Some(n), content))
+                        }
+                    };
                     let name = identifier_node
                         .map(|n| self.base.get_node_text(Some(n), content))
                         .unwrap_or_default();
