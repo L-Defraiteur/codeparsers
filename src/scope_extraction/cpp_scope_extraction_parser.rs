@@ -486,6 +486,29 @@ impl CppScopeExtractionParser {
         if node.kind() == "function_definition" {
             let declarator = self.find_function_declarator(node);
             let conversion = if declarator.is_none() { self.operateur_de_conversion(node, content) } else { None };
+            // **Une macro seule sur sa ligne n'ouvre pas une fonction** (ticket du 25 octobre 2026, depuis
+            // tree-sitter-cpp 0.23.4) : `FMT_BEGIN_NAMESPACE namespace detail { … }` arrive en
+            // `function_definition` — la macro pour type, `detail` pour déclarateur, le corps du namespace
+            // pour corps — sans `function_declarator`, ce qu'aucune vraie fonction n'est. Pas de scope
+            // anonyme : ce qu'il contient prend pour parent le namespace écrit dans sa tête, s'il y en a un,
+            // sinon le parent d'au-dessus (`FMT_CLASS_API class … { … }`).
+            if declarator.is_none() && conversion.is_none() {
+                if let Some(body) = node.child_by_field_name("body") {
+                    let tete = &content[node.start_byte()..body.start_byte()];
+                    let espace = tete
+                        .split_whitespace()
+                        .skip_while(|m| *m != "namespace")
+                        .nth(1)
+                        .map(|n| n.trim_end_matches('{').to_string())
+                        .filter(|n| !n.is_empty() && n.chars().all(|c| c.is_alphanumeric() || c == '_' || c == ':'));
+                    let parent_du_contenu = espace.or_else(|| parent.clone());
+                    let mut body_cursor = body.walk();
+                    for body_child in body.children(&mut body_cursor) {
+                        self.extract_scopes(body_child, scopes, content, depth, parent_du_contenu.clone(), file_imports, file_path);
+                    }
+                    return;
+                }
+            }
             let name = declarator
                 .and_then(|d| self.extract_function_name(d, content))
                 .or_else(|| conversion.as_ref().map(|(n, _)| n.clone()))
