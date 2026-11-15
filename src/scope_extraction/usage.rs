@@ -743,13 +743,69 @@ pub fn deferred_with_bindings(
         let base = deferred_with_bindings(&dedans, types, retours, liees, englobant, champ_implicite)?;
         return Some(base.with_peel(enveloppes.into_iter().chain(chaine).collect()));
     }
+    // `GraphTool::from_mermaid(t).map_err(…)?`, `Self::f()` : la fonction `f` du type, puis la chaîne.
+    if let Some((ty, f, reste)) = appel_par_chemin(q) {
+        let ty = if ty == "Self" { englobant?.to_string() } else { ty };
+        let chaine = if reste.trim().is_empty() { Vec::new() } else { super::receveur::split_chain(&format!("x{reste}"))?.1 };
+        return Some(super::types::DeferredType::OfType { ty, peel: std::iter::once(f).chain(chaine).collect() });
+    }
     if let Some((racine, chaine)) = super::receveur::split_chain(q) {
         if !chaine.is_empty() {
+            // Une racine de type connu (`self` dans un `impl`, un paramètre
+            // typé) : la chaîne se pèle sur lui, méthodes du projet comprises.
+            let connu = match racine.as_str() {
+                "self" | "this" => englobant.map(str::to_string),
+                // Une liaison différée plus précise d'abord (`let c =
+                // Arc::new(Mutex::new(f()))` : le contenu dit le type, pas `Arc`).
+                r if liees.contains_key(r) => None,
+                r => types.get(r).filter(|t| !super::receveur::is_wrapper(t)).and_then(|t| super::receveur::type_name(t)),
+            };
+            if let Some(ty) = connu {
+                return Some(super::types::DeferredType::OfType { ty, peel: chaine });
+            }
             let base = racine_differee(&racine, types, retours, liees, englobant, champ_implicite)?;
             return Some(base.with_peel(chaine));
         }
     }
     racine_differee(q, types, retours, liees, englobant, champ_implicite)
+}
+
+/// `Type::f(…)reste` → (`Type`, `f`, `reste`) : un appel de fonction associée
+/// par un chemin dont l'avant-dernier segment est un type (`crate::g::GraphTool::f`,
+/// `Self::f`). Un module (`metadata::f`) ou un constructeur d'enveloppe (déjà
+/// lu ailleurs) : `None`.
+fn appel_par_chemin(q: &str) -> Option<(String, String, String)> {
+    let q = q.trim();
+    let tete: String = q.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':').collect();
+    let (chemin, f) = tete.rsplit_once("::")?;
+    let ty = chemin.rsplit("::").next()?;
+    let ident = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_');
+    if !ident(ty) || !ident(f) || !ty.starts_with(char::is_uppercase) || !f.starts_with(|c: char| c.is_lowercase() || c == '_') {
+        return None;
+    }
+    let apres = q[tete.len()..].trim_start();
+    if !apres.starts_with('(') {
+        return None;
+    }
+    let fin = fin_des_parentheses_simple(apres)?;
+    Some((ty.to_string(), f.to_string(), apres[fin + 1..].to_string()))
+}
+
+fn fin_des_parentheses_simple(s: &str) -> Option<usize> {
+    let mut prof = 0usize;
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' | '[' | '{' => prof += 1,
+            ')' | ']' | '}' => {
+                prof = prof.checked_sub(1)?;
+                if prof == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// **Les variables liées à une expression différée** : `let guard =

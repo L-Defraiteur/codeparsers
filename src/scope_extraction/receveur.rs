@@ -146,6 +146,10 @@ fn methode(t: &str, m: &str) -> Option<String> {
         ("RefCell", "borrow") => Some(format!("Ref<{}>", premier()?)),
         ("RefCell", "borrow_mut") => Some(format!("RefMut<{}>", premier()?)),
         ("Result" | "Option" | "LockResult", "unwrap" | "expect" | "?" | "await") => premier(),
+        // L'erreur change, la valeur reste ; une `Option` devient un `Result` de la même valeur.
+        ("Result", "map_err" | "or_else") => Some(format!("Result<{}>", premier()?)),
+        ("Option", "ok_or" | "ok_or_else") => Some(format!("Result<{}>", premier()?)),
+        ("Result", "ok") => Some(format!("Option<{}>", premier()?)),
         ("LockResult", _) => None,
         (c, m) if COLLECTIONS.contains(&c) && VERS_ITERATEUR.contains(&m) => Some("Iterator".into()),
         ("Iterator", m) if ADAPTATEURS.contains(&m) => Some("Iterator".into()),
@@ -317,14 +321,54 @@ pub fn peel(t: &str, chaine: &[String]) -> Option<String> {
 /// courant, rendu par `champ(type, nom)` — la table des champs du lecteur.
 /// `None` dès qu'un pas ne se lit pas.
 pub fn peel_avec(t: &str, chaine: &[String], champ: &dyn Fn(&str, &str) -> Option<String>) -> Option<String> {
+    peel_complet(t, chaine, champ, &|_, _| None)
+}
+
+/// [`peel_avec`], avec les **méthodes du projet** : un maillon que la table std
+/// ne connaît pas est la méthode `m` du type courant, dont `retour(type, m)`
+/// rend le retour écrit (`Self` y vaut le type). `None` dès qu'un pas ne se lit
+/// pas.
+pub fn peel_complet(
+    t: &str,
+    chaine: &[String],
+    champ: &dyn Fn(&str, &str) -> Option<String>,
+    retour: &dyn Fn(&str, &str) -> Option<String>,
+) -> Option<String> {
     let mut t = t.to_string();
     for m in chaine {
         t = match m.strip_prefix('.') {
             Some(f) => champ(&type_name(&t)?, f)?,
-            None => methode(&t, m)?,
+            None => match methode(&t, m) {
+                Some(suivant) => suivant,
+                None => {
+                    let classe = type_name(&t)?;
+                    let ecrit = retour(&classe, m)?;
+                    remplacer_self(&ecrit, &classe)
+                }
+            },
         };
     }
     Some(t)
+}
+
+/// `Result<Self, E>` dans `impl GraphTool` : `Result<GraphTool, E>`.
+pub fn remplacer_self(ecrit: &str, classe: &str) -> String {
+    let mut out = String::new();
+    let mut mot = String::new();
+    let vider = |mot: &mut String, out: &mut String| {
+        out.push_str(if mot == "Self" { classe } else { mot });
+        mot.clear();
+    };
+    for c in ecrit.chars() {
+        if c.is_alphanumeric() || c == '_' {
+            mot.push(c);
+        } else {
+            vider(&mut mot, &mut out);
+            out.push(c);
+        }
+    }
+    vider(&mut mot, &mut out);
+    out
 }
 
 /// Le nom d'un type pour `qualifier_type`, à travers ses enveloppes.

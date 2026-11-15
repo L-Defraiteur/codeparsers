@@ -2436,7 +2436,7 @@ impl BaseScopeExtractionParser {
             let appel = r.usage == Some(crate::scope_extraction::types::UsageKind::Call);
             if r.qualifier_type.is_some() {
                 r.untyped_receiver = false;
-            } else if r.qualifier_deferred.is_some() && appel && locale {
+            } else if r.qualifier_deferred.as_ref().is_some_and(|d| !d.is_best_effort()) && appel && locale {
                 r.untyped_receiver = true;
             }
             // **Un appel de méthode standard sur une locale dont aucun type ne
@@ -2450,7 +2450,7 @@ impl BaseScopeExtractionParser {
             r.receiver_type_unread = appel
                 && locale
                 && r.qualifier_type.is_none()
-                && r.qualifier_deferred.is_none()
+                && r.qualifier_deferred.as_ref().is_none_or(|d| d.is_best_effort())
                 && crate::scope_extraction::standard::is_standard_method_of(&self.language, &r.identifier);
         }
         references.into_values().collect()

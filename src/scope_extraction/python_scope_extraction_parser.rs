@@ -1141,7 +1141,7 @@ impl PythonScopeExtractionParser {
             r.receiver_type_unread = locale
                 && r.usage == Some(crate::scope_extraction::types::UsageKind::Call)
                 && r.qualifier_type.is_none()
-                && r.qualifier_deferred.is_none()
+                && r.qualifier_deferred.as_ref().is_none_or(|d| d.is_best_effort())
                 && crate::scope_extraction::standard::is_standard_method_of(&crate::parallel::parser_worker::SupportedLanguage::Python, &r.identifier);
         }
         super::base_scope_extraction_parser::without_declaring_names(node, references.into_values().collect())

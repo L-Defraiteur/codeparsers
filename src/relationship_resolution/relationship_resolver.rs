@@ -562,13 +562,15 @@ impl RelationshipResolver {
                     })
                 })
             });
-            if type_lu.is_none() && r.qualifier_deferred.is_some() && !qualificatif_de_type {
+            // Un `OfType` non lu (une lecture au mieux) suit la règle d'avant.
+            let differe_strict = r.qualifier_deferred.as_ref().is_some_and(|d| !d.is_best_effort());
+            if type_lu.is_none() && differe_strict && !qualificatif_de_type {
                 continue;
             }
             // Un appel sur une locale qui était écarté (marqué, sans type
             // différé) ne se relie pas par le nom ; une locale à type différé
             // garde la règle d'avant (ci-dessus).
-            if type_lu.is_none() && r.untyped_receiver && r.qualifier_deferred.is_none() {
+            if type_lu.is_none() && r.untyped_receiver && !differe_strict {
                 continue;
             }
             // Un nom nu qui désigne une fermeture locale (`let local = |s| …;
@@ -733,7 +735,7 @@ impl RelationshipResolver {
                     // Un appel sur une locale qui était écarté (marqué, sans
                     // type différé) ne se relie jamais, même homonyme d'un
                     // scope ; une locale à type différé garde la règle d'avant.
-                    let ecarte = r.untyped_receiver && r.qualifier_deferred.is_none();
+                    let ecarte = r.untyped_receiver && r.qualifier_deferred.as_ref().is_none_or(|d| d.is_best_effort());
                     if typed.is_none() && (!qual_connu || ecarte) {
                         continue;
                     }
@@ -1312,6 +1314,9 @@ impl RelationshipResolver {
             })
         };
         let base = match differe {
+            // Une chaîne de méthodes du projet : la finalisation du fichier
+            // (`parser_worker`) l'a lue si elle pouvait ; rien de plus ici.
+            DeferredType::OfType { .. } => return None,
             DeferredType::FieldOf { owner, field, .. } => {
                 // « Fichier seul » : le champ doit être déclaré dans ce
                 // fichier — sa déclaration ailleurs dépend du paquet.
@@ -1883,7 +1888,7 @@ fn acces_de_champ(r: &IdentifierReference) -> bool {
         && q.chars().all(|c| c.is_alphanumeric() || c == '_')
         && q.starts_with(|c: char| c.is_lowercase() || c == '_');
     let chemin = r.context.as_deref().is_some_and(|ctx| ctx.contains(&format!("{q}::{}", r.identifier)));
-    instance || (variable && !chemin && r.qualifier_type.is_none() && r.qualifier_deferred.is_none())
+    instance || (variable && !chemin && r.qualifier_type.is_none() && r.qualifier_deferred.as_ref().is_none_or(|d| d.is_best_effort()))
 }
 
 /// Un fichier JavaScript ou TypeScript.

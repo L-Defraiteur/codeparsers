@@ -178,20 +178,38 @@ pub enum DeferredType {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         peel: Vec<String>,
     },
+    /// **Un type connu, puis une chaîne d'appels** : `ctx.cancellation()` avec
+    /// `ctx: &Ctx`, `self.teammate_files()?` dans un `impl Host`,
+    /// `GraphTool::from_mermaid(t).map_err(…)?`. Un maillon que la table std
+    /// ne connaît pas est une méthode du type courant : son retour écrit se lit
+    /// ailleurs (le lecteur qui voit le projet).
+    OfType {
+        ty: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        peel: Vec<String>,
+    },
 }
 
 impl DeferredType {
     /// La même lecture, suivie de ces méthodes.
     pub fn with_peel(mut self, suite: Vec<String>) -> Self {
         match &mut self {
-            DeferredType::FieldOf { peel, .. } | DeferredType::ReturnOf { peel, .. } | DeferredType::TemplateReturnOf { peel, .. } => peel.extend(suite),
+            DeferredType::FieldOf { peel, .. } | DeferredType::ReturnOf { peel, .. } | DeferredType::TemplateReturnOf { peel, .. } | DeferredType::OfType { peel, .. } => peel.extend(suite),
         }
         self
     }
 
+    /// **Une lecture de plus, au mieux** (`OfType`) : lue, elle donne le type ;
+    /// non lue, la référence suit la règle d'avant, comme sans type différé (une
+    /// méthode du projet garde son lien par le nom, une méthode std s'abstient).
+    /// Les autres sortes, non lues, ne se relient jamais par le nom.
+    pub fn is_best_effort(&self) -> bool {
+        matches!(self, DeferredType::OfType { .. })
+    }
+
     pub fn peel(&self) -> &[String] {
         match self {
-            DeferredType::FieldOf { peel, .. } | DeferredType::ReturnOf { peel, .. } | DeferredType::TemplateReturnOf { peel, .. } => peel,
+            DeferredType::FieldOf { peel, .. } | DeferredType::ReturnOf { peel, .. } | DeferredType::TemplateReturnOf { peel, .. } | DeferredType::OfType { peel, .. } => peel,
         }
     }
 }

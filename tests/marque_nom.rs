@@ -66,7 +66,8 @@ fn une_methode_du_projet_sur_une_locale_sans_type_ne_le_dit_pas() {
     let src = "pub fn parcours(ctx: &mut Ctx) -> Option<()> {\n    let n = ctx.prends(\"n\").and_then(|p| conv(p))?;\n    n.aller();\n    n.is_empty();\n    Some(())\n}\n";
     let aller = references(src, "parcours", "aller");
     assert_eq!(aller.len(), 1, "{aller:?}");
-    assert!(aller[0].qualifier_type.is_none() && aller[0].qualifier_deferred.is_none(), "{aller:?}");
+    // Une lecture au mieux (`OfType` de `Ctx`, que `and_then` arrête) peut naître : elle ne change rien.
+    assert!(aller[0].qualifier_type.is_none() && aller[0].qualifier_deferred.as_ref().is_none_or(|d| d.is_best_effort()), "{aller:?}");
     assert!(!aller[0].receiver_type_unread, "aller : méthode du projet — {aller:?}");
     let vide = references(src, "parcours", "is_empty");
     assert!(vide.iter().all(|x| x.receiver_type_unread), "is_empty : méthode de std — {vide:?}");

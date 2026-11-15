@@ -295,6 +295,8 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
     // Les fonctions gabarits : nom → (retour écrit, paramètres, parent), une
     // entrée par définition (les surcharges de `ku_dynamic_cast`).
     let mut gabarits: HashMap<String, Vec<(String, Vec<String>, Option<String>)>> = HashMap::new();
+    // (type, méthode) → retour écrit : le pelage d'une chaîne de méthodes du projet.
+    let mut methodes: HashMap<(String, String), Option<String>> = HashMap::new();
     for s in &analysis.scopes {
         for m in s.members.iter().flatten() {
             if m.member_type != ClassMemberInfoMemberType::Property {
@@ -316,13 +318,23 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
             if let Some(rt) = s.return_type.as_ref().filter(|t| !t.trim().is_empty()) {
                 let v = (rt.clone(), s.parent.clone());
                 retours.entry(s.name.clone()).and_modify(|o| *o = None).or_insert(Some(v));
+                if let Some(parent) = s.parent.as_deref().and_then(base_type_name) {
+                    methodes
+                        .entry((parent, s.name.clone()))
+                        .and_modify(|o| {
+                            if o.as_deref() != Some(rt.as_str()) {
+                                *o = None;
+                            }
+                        })
+                        .or_insert(Some(rt.clone()));
+                }
                 if let Some(g) = s.generic_parameters.as_ref().filter(|g| !g.is_empty()) {
                     gabarits.entry(s.name.clone()).or_default().push((rt.clone(), g.iter().map(|p| p.name.clone()).collect(), s.parent.clone()));
                 }
             }
         }
     }
-    if champs.is_empty() && retours.is_empty() && gabarits.is_empty() {
+    if champs.is_empty() && retours.is_empty() && gabarits.is_empty() && methodes.is_empty() {
         return;
     }
     for s in &mut analysis.scopes {
@@ -331,11 +343,12 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
                 continue;
             }
             let champ = |classe: &str, f: &str| champs.get(&(classe.to_string(), f.to_string())).cloned().flatten();
+            let retour = |classe: &str, m: &str| methodes.get(&(classe.to_string(), m.to_string())).cloned().flatten();
             let nom_du_type = |ecrit: &str, peel: &[String]| -> Option<String> {
                 if peel.is_empty() {
                     base_type_name(ecrit)
                 } else {
-                    crate::scope_extraction::receveur::peel_avec(ecrit, peel, &champ).and_then(|t| crate::scope_extraction::receveur::type_name(&t))
+                    crate::scope_extraction::receveur::peel_complet(ecrit, peel, &champ, &retour).and_then(|t| crate::scope_extraction::receveur::type_name(&t))
                 }
             };
             let lu = match r.qualifier_deferred.as_ref() {
@@ -364,6 +377,7 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
                         _ => None,
                     }
                 }
+                Some(DeferredType::OfType { ty, peel }) => nom_du_type(ty, peel),
                 None => None,
             };
             if lu.is_some() {

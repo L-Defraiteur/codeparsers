@@ -1,6 +1,6 @@
 //! **Un lien posé par le nom seul, dans le fichier, sur un receveur non
 //! typé, se dit par le nom** (décision de l'orchestration pour Lucie, 11
-//! octobre 2026). `let prepared = self.prepared(); prepared.describe()` —
+//! octobre 2026). `let prepared = Inconnu::prepared(); prepared.describe()` —
 //! un receveur dont aucun type ne se lit — était relié à la seule méthode
 //! `describe` du fichier, comme un lien sûr (marqué « fichier »). Le lien reste (la moitié de
 //! ces liens est juste) ; la relation le dit : `by_name`. Un lien par le
@@ -38,9 +38,11 @@ impl Resolution {\n    pub fn as_str(&self) -> &str { \"fichier\" }\n    pub fn 
 pub struct Prepared;\n\
 impl Prepared {\n    pub fn describe(&self) -> u8 { 0 }\n}\n\
 pub struct Backend;\n\
-impl Backend {\n    fn prepared(&self) -> Prepared { Prepared }\n    pub fn cles(&self) -> u8 {\n        let prepared = self.prepared();\n        prepared.describe()\n    }\n}\n\
+impl Backend {\n    fn prepared(&self) -> Prepared { Prepared }\n    pub fn cles(&self) -> u8 {\n        let prepared = Inconnu::prepared();\n        prepared.describe()\n    }\n}\n\
 pub fn sure(r: Resolution) -> String {\n    r.as_str().to_string()\n}\n";
 
+// `self.prepared()` lit son type depuis le 15 novembre 2026 (une chaîne de méthodes du projet,
+// `tests/chaines_du_projet.rs`) : le receveur non typé est le retour d'une fonction d'un type que rien ne déclare.
 #[test]
 fn un_lien_par_le_nom_sur_un_receveur_non_type_le_dit() {
     let r = relations(SRC);
