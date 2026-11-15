@@ -23,12 +23,12 @@ const RUST_DOC_PREFIXES: &[&str] = &["//!", "///"];
 
 use std::collections::HashSet;
 
+/// `new` n'y est pas : en Rust c'est un nom de fonction, le constructeur le plus courant (`T::new()`).
 pub const RUST_STOP_WORDS: &[&str] = &[
     "if", "for", "while", "return",
     "const", "let", "var", "function",
     "class", "extends", "implements", "import",
-    "from", "export", "default", "new",
-    "this", "super", "await", "async",
+    "from", "export", "default",     "this", "super", "await", "async",
     "switch", "case", "break", "continue",
     "try", "catch", "finally", "throw",
     "true", "false", "null", "undefined",
