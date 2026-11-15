@@ -69,7 +69,7 @@ fn le_meme_en_cpp() {
 /// par les includes de rag3weaver lit cette liste. Une source `.c` n'en avait aucune — tout appel C vers
 /// un autre fichier était invisible (`examples/c/main.c` → `rag3db_connection_init`, 15 novembre 2026).
 #[test]
-fn une_source_c_releve_ses_includes() {
+fn a_c_source_records_its_includes() {
     let chemin = "/virtual/main.c".to_string();
     let a = ProjectParser::new(ProjectParserOptions { verbose: false }).parse_project(ParseProjectOptions {
         root: "/virtual".to_string(),

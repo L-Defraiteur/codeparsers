@@ -4986,8 +4986,8 @@ pub fn masquer_les_macros_d_attribut(content: &str) -> std::borrow::Cow<'_, str>
     // de rag3db.h n'étaient plus des déclarations du fichier, et un appel C ne voyait pas sa
     // définition C++ (ticket du 15 novembre 2026). Les deux lignes de garde sont masquées : le
     // contenu reste au niveau du fichier, comme pour un compilateur C.
-    static GARDE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re3 = GARDE.get_or_init(|| {
+    static EXTERN_C_GUARD: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re3 = EXTERN_C_GUARD.get_or_init(|| {
         regex::Regex::new(
             r#"(?m)^[ \t]*#[ \t]*if(?:def[ \t]+__cplusplus|[ \t]+defined[ \t]*\(?[ \t]*__cplusplus[ \t]*\)?)[ \t]*(?://[^\n]*)?\r?\n([ \t]*(?:extern[ \t]+"C"[ \t]*\{|\})[ \t]*(?://[^\n]*)?)\r?\n[ \t]*#[ \t]*endif"#,
         )
