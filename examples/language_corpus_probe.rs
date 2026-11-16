@@ -141,7 +141,7 @@ fn compact_scopes(scopes: &[ScopeInfo], inventory: &mut CompactInventory) {
     for scope in scopes {
         inventory.add(
             json!({"record":"scope", "name":scope.name, "type":scope.r#type,
-            "parent":scope.parent,"parent_path":scope.parent_path,
+            "parent":scope.parent,"parent_path":scope.parent_path,"modifiers":scope.modifiers,
             "start_line":scope.scope_start_line,"end_line":scope.scope_end_line,
             "start_byte":scope.scope_start_byte,"end_byte":scope.scope_end_byte,
             "node_start_byte":scope.node_start_byte,"node_end_byte":scope.node_end_byte,
