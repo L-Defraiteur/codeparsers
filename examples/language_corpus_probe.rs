@@ -121,6 +121,62 @@ fn scope_counts(
         }
     }
 }
+struct CompactInventory {
+    rows: Vec<Value>,
+    bytes: usize,
+    omitted: usize,
+}
+impl CompactInventory {
+    fn add(&mut self, value: Value) {
+        let size = serde_json::to_vec(&value).map_or(usize::MAX, |bytes| bytes.len());
+        if size > 2 * 1024 * 1024usize - self.bytes {
+            self.omitted += 1;
+        } else {
+            self.bytes += size;
+            self.rows.push(value);
+        }
+    }
+}
+fn compact_scopes(scopes: &[ScopeInfo], inventory: &mut CompactInventory) {
+    for scope in scopes {
+        inventory.add(
+            json!({"record":"scope", "name":scope.name, "type":scope.r#type,
+            "parent":scope.parent,"parent_path":scope.parent_path,
+            "start_line":scope.scope_start_line,"end_line":scope.scope_end_line,
+            "start_byte":scope.scope_start_byte,"end_byte":scope.scope_end_byte,
+            "node_start_byte":scope.node_start_byte,"node_end_byte":scope.node_end_byte,
+            "return_type":scope.return_type,"heritage":scope.heritage_clauses,
+            "generic_parameters":scope.generic_parameters}),
+        );
+        for member in scope.members.iter().flatten() {
+            inventory.add(
+                json!({"record":"member","owner":scope.name,"name":member.name,
+                "type":member.r#type,"member_type":member.member_type,"line":member.line}),
+            );
+        }
+        for parameter in &scope.parameters {
+            inventory.add(
+                json!({"record":"parameter","owner":scope.name,"name":parameter.name,
+                "type":parameter.r#type,"line":parameter.line,"column":parameter.column}),
+            );
+        }
+        for import in &scope.import_references {
+            inventory.add(json!({"record":"import","owner":scope.name,"binding":import}));
+        }
+        for decorator in scope.decorator_details.iter().flatten() {
+            inventory.add(json!({"record":"decorator","owner":scope.name,"name":decorator.name,"line":decorator.line}));
+        }
+        for variable in scope.variables.iter().flatten() {
+            inventory.add(
+                json!({"record":"variable","owner":scope.name,"name":variable.name,
+                "type":variable.r#type,"line":variable.line}),
+            );
+        }
+        for child in &scope.children {
+            compact_scopes(std::slice::from_ref(child.as_ref()), inventory);
+        }
+    }
+}
 fn array_counts(value: &Value, prefix: &str, counts: &mut BTreeMap<String, usize>) {
     if let Some(object) = value.as_object() {
         for (key, value) in object {
@@ -184,6 +240,15 @@ fn analyze(entry: &Entry, content: String) -> Result<Value, String> {
         let mut references = 0;
         let mut members = 0;
         scope_counts(&result.scopes, &mut counts, &mut references, &mut members);
+        let mut inventory = CompactInventory {
+            rows: Vec::new(),
+            bytes: 0,
+            omitted: 0,
+        };
+        compact_scopes(&result.scopes, &mut inventory);
+        for import in &result.import_references {
+            inventory.add(json!({"record":"file_import","binding":import}));
+        }
         let raw = result.aucun_parseur;
         let captured: usize = counts.values().sum();
         return Ok(
@@ -192,6 +257,7 @@ fn analyze(entry: &Entry, content: String) -> Result<Value, String> {
             "ast_issues":result.ast_issues,"elapsed_ns":elapsed,
             "capture_status":if raw {"not_applicable"} else if captured == 0 {"empty"} else {"nonempty"},
             "scopes":if raw {Value::Null} else {json!(captured)},"scope_types":counts,
+            "compact_inventory":inventory.rows,"compact_inventory_omitted":inventory.omitted,
             "reported_total_scopes":result.total_scopes,"identifier_reference_facts":references,
             "member_facts":members,"import_reference_facts":result.import_references.len(),
             "relations":null,"relations_reason":"project_resolution_not_run"}),
