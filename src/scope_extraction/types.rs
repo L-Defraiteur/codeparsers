@@ -164,6 +164,11 @@ pub enum DeferredType {
         unwrap: bool,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         peel: Vec<String>,
+        /// The module this file imports `function` from (`super::chat_qui_code` for `use
+        /// super::chat_qui_code::hote`), when it does: a function defined several times with different
+        /// returns is the one the import designates (16 November 2026).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        module: Option<String>,
     },
     /// Le type de retour déclaré d'un **gabarit appelé avec des arguments
     /// explicites**, chaque paramètre du gabarit remplacé par l'argument de

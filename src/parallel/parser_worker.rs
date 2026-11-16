@@ -290,6 +290,25 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
     use crate::scope_extraction::types::{ClassMemberInfoMemberType, DeferredType};
     use crate::scope_extraction::usage::base_type_name;
     use std::collections::HashMap;
+    // **The module a deferred return's function comes from** (16 November 2026): the import of this file
+    // that binds the function's name. The project-wide reader picks, among homonymous functions, the one in
+    // the file the module designates.
+    let importes: HashMap<String, String> = analysis
+        .import_references
+        .iter()
+        .map(|i| (i.alias.clone().unwrap_or_else(|| i.imported.clone()), i.module_path.clone().unwrap_or_else(|| i.source.clone())))
+        .collect();
+    if !importes.is_empty() {
+        for s in &mut analysis.scopes {
+            for r in &mut s.identifier_references {
+                if let Some(DeferredType::ReturnOf { function, module, .. }) = r.qualifier_deferred.as_mut() {
+                    if module.is_none() {
+                        *module = importes.get(function.as_str()).cloned();
+                    }
+                }
+            }
+        }
+    }
     let mut champs: HashMap<(String, String), Option<String>> = HashMap::new();
     let mut retours: HashMap<String, Option<(String, Option<String>)>> = HashMap::new();
     // Les fonctions gabarits : nom → (retour écrit, paramètres, parent), une
@@ -356,7 +375,7 @@ fn lire_les_types_differes(analysis: &mut ScopeFileAnalysis) {
                 Some(DeferredType::FieldOf { owner, field, peel }) => {
                     champs.get(&(owner.clone(), field.clone())).cloned().flatten().and_then(|ecrit| nom_du_type(&ecrit, peel))
                 }
-                Some(DeferredType::ReturnOf { function, unwrap, peel }) => retours.get(function).cloned().flatten().and_then(|(ecrit, parent)| {
+                Some(DeferredType::ReturnOf { function, unwrap, peel, .. }) => retours.get(function).cloned().flatten().and_then(|(ecrit, parent)| {
                     let ecrit = if *unwrap {
                         crate::relationship_resolution::relationship_resolver::first_generic_argument(&ecrit, &["Result", "Option"])?
                     } else {

@@ -944,7 +944,7 @@ fn racine_differee(
             return Some(d.clone().with_peel(pas(reste)));
         }
         if let Some((f, deballe)) = retours.get(s0) {
-            return Some(DeferredType::ReturnOf { function: f.clone(), unwrap: *deballe, peel: pas(reste) });
+            return Some(DeferredType::ReturnOf { function: f.clone(), unwrap: *deballe, peel: pas(reste), module: None });
         }
         if champ_implicite {
             return englobant.map(|owner| DeferredType::FieldOf { owner: owner.to_string(), field: s0.to_string(), peel: pas(reste) });
@@ -956,7 +956,7 @@ fn racine_differee(
     }
     if ident(q) {
         if let Some((f, deballe)) = retours.get(q) {
-            return Some(DeferredType::ReturnOf { function: f.clone(), unwrap: *deballe, peel: Vec::new() });
+            return Some(DeferredType::ReturnOf { function: f.clone(), unwrap: *deballe, peel: Vec::new(), module: None });
         }
         if let Some(d) = liees.get(q) {
             return Some(d.clone());
@@ -974,7 +974,7 @@ fn racine_differee(
     let ouverture = corps.find('(')?;
     let nom = &corps[..ouverture];
     (ident(nom) && corps.ends_with(')') && !nom.starts_with(|c: char| c.is_uppercase()))
-        .then(|| DeferredType::ReturnOf { function: nom.to_string(), unwrap: deballe, peel: Vec::new() })
+        .then(|| DeferredType::ReturnOf { function: nom.to_string(), unwrap: deballe, peel: Vec::new(), module: None })
 }
 
 /// Les casts du langage : le type est l'argument du gabarit.
