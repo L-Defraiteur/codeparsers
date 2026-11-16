@@ -1,9 +1,9 @@
 # Les mots vides de rust (codeparsers, `scope_extraction::standard`).
-# Généré par data/stop_words/generer.py — ne pas éditer à la main : relancer le générateur.
+# Généré par data/stop_words/generate.py — ne pas éditer à la main : relancer le générateur.
 # Un identifiant de cette liste n'est pas une référence.
-langue = "rust"
+language = "rust"
 source = "la doc de std de rustc 1.98.1 : les pages keyword.* (sans les mots-clés faibles : union), et les variantes d'Option et de Result"
-noms = [
+names = [
     "Err",
     "None",
     "Ok",
