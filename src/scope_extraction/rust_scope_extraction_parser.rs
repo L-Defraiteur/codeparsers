@@ -24,28 +24,7 @@ const RUST_DOC_PREFIXES: &[&str] = &["//!", "///"];
 use std::collections::HashSet;
 
 /// `new` n'y est pas : en Rust c'est un nom de fonction, le constructeur le plus courant (`T::new()`).
-pub const RUST_STOP_WORDS: &[&str] = &[
-    "if", "for", "while", "return",
-    "const", "let", "var", "function",
-    "class", "extends", "implements", "import",
-    "from", "export", "default",
-    "this", "super", "await", "async",
-    "switch", "case", "break", "continue",
-    "try", "catch", "finally", "throw",
-    "true", "false", "null", "undefined",
-    "typeof", "instanceof", "in", "of",
-    "fn", "let", "mut", "const",
-    "static", "struct", "enum", "trait",
-    "impl", "type", "mod", "use",
-    "pub", "crate", "self", "super",
-    "where", "if", "else", "match",
-    "loop", "while", "for", "in",
-    "break", "continue", "return", "async",
-    "await", "move", "ref", "dyn",
-    "unsafe", "extern", "as", "true",
-    "false", "Some", "None", "Ok",
-    "Err",
-];
+/// The Rust stop words now live in `data/stop_words/rust.toml` (`standard::stop_words_of`).
 
 pub const RUST_BUILTIN_IDENTIFIERS: &[&str] = &[
     "Self", "Option", "Result", "Vec",
@@ -129,7 +108,9 @@ impl RustScopeExtractionParser {
     pub fn new() -> Self {
         let mut base = BaseScopeExtractionParser::new(SupportedLanguage::Rust);
         base.node_types = RUST_NODE_TYPES.clone();
-        base.stop_words = RUST_STOP_WORDS.iter().map(|s| s.to_string()).collect();
+        // The Rust keywords and the prelude's variants, from the std doc (`data/stop_words/rust.toml`):
+        // not the JavaScript list it used to copy (`Settings::default()` is a reference, 16 November 2026).
+        base.stop_words = crate::scope_extraction::standard::stop_words_of(&SupportedLanguage::Rust).unwrap_or_default().into_iter().collect();
         base.builtin_identifiers = RUST_BUILTIN_IDENTIFIERS.iter().map(|s| s.to_string()).collect();
         Self { base }
     }

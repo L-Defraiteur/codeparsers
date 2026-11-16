@@ -60,6 +60,24 @@ const TS: &[&str] = &[
     "get", "set", "has", "delete", "keys", "values", "entries", "toString", "then", "catch",
 ];
 
+/// **The stop words of a language, as data** (`data/stop_words/<langue>.toml`, generated from the machine
+/// by `data/stop_words/generer.py`, 16 November 2026) : an identifier of the list is not a reference.
+/// `None` for a language whose list is still in code.
+pub fn stop_words_of(language: &SupportedLanguage) -> Option<Vec<String>> {
+    const STOP_WORDS: &[(&str, &str)] = &[("rust", include_str!("../../data/stop_words/rust.toml"))];
+    let langue = match language {
+        SupportedLanguage::Rust => "rust",
+        _ => return None,
+    };
+    let texte = STOP_WORDS.iter().find(|(l, _)| *l == langue)?.1;
+    #[derive(serde::Deserialize)]
+    struct Liste {
+        noms: Vec<String>,
+    }
+    let liste: Liste = toml::from_str(texte).unwrap_or_else(|e| panic!("data/stop_words/{langue}.toml livré illisible : {e}"));
+    Some(liste.noms)
+}
+
 /// `nom` est-il une méthode de la bibliothèque standard du langage ?
 pub fn is_standard_method_of(language: &SupportedLanguage, nom: &str) -> bool {
     match language {
