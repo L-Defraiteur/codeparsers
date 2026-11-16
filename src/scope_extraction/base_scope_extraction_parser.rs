@@ -2333,10 +2333,10 @@ impl BaseScopeExtractionParser {
         let liees = if matches!(self.language, SupportedLanguage::Rust) {
             crate::scope_extraction::usage::deferred_bindings(node, content, &types, &retours, englobant.as_deref(), champ_implicite)
         } else {
-            std::collections::HashMap::new()
+            crate::scope_extraction::usage::DeferredBindings::default()
         };
         let mut exclude = exclude;
-        for nom in types.keys().chain(retours.keys()).chain(pleins.names()).chain(liees.keys()) {
+        for nom in types.keys().chain(retours.keys()).chain(pleins.names()).chain(liees.names()) {
             exclude.insert(typed_binding(nom));
         }
         // Rust : une locale liée à une fermeture (`let double = |x| …;`) a
@@ -2421,8 +2421,10 @@ impl BaseScopeExtractionParser {
                 // de module ne prend pas le type de la locale homonyme.
                 !r.context.as_deref().is_some_and(|c| c.contains(&format!("{q}::{}", r.identifier)))
             }) {
+                // The deferred bindings visible where the reference is (a shadowed `let` has two).
+                let pos = debuts_de_ligne.get(r.line.saturating_sub(1)).copied().unwrap_or(0) + r.column.unwrap_or(0);
                 r.qualifier_deferred =
-                    crate::scope_extraction::usage::deferred_with_bindings(q, &types, &retours, &liees, englobant.as_deref(), champ_implicite);
+                    crate::scope_extraction::usage::deferred_with_bindings(q, &types, &retours, &liees.at(pos), englobant.as_deref(), champ_implicite);
             }
             // **Une locale liée à une expression différée** (`let t = f();`,
             // `auto t = f();`) dont le type ne se lit pas sur place : marquée

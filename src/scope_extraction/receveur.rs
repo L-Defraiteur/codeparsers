@@ -336,6 +336,11 @@ pub fn peel_complet(
 ) -> Option<String> {
     let mut t = t.to_string();
     for m in chaine {
+        // `#i` : the element of rank `i` of a tuple type (`(Catalog, Store)` → `Catalog` for `#0`).
+        if let Some(i) = m.strip_prefix('#').and_then(|i| i.parse::<usize>().ok()) {
+            t = tuple_element(&t, i)?;
+            continue;
+        }
         t = match m.strip_prefix('.') {
             Some(f) => champ(&type_name(&t)?, f)?,
             None => match methode(&t, m) {
@@ -356,6 +361,28 @@ pub fn peel_complet(
 /// rendu : c'est l'appelant qui le fixe.
 pub fn nomme_un_parametre(ecrit: &str, params: &[String]) -> bool {
     ecrit.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|mot| params.iter().any(|p| p == mot))
+}
+
+/// The element of rank `i` of a written tuple type, `(A, B<C, D>)` → `B<C, D>` for 1 ; `None` for
+/// anything that is not a tuple.
+fn tuple_element(t: &str, i: usize) -> Option<String> {
+    let t = t.trim().trim_start_matches('&').trim_start_matches("mut ").trim();
+    let inner = t.strip_prefix('(')?.strip_suffix(')')?;
+    let mut depth = 0usize;
+    let mut parts = vec![String::new()];
+    for c in inner.chars() {
+        match c {
+            '<' | '(' | '[' => depth += 1,
+            '>' | ')' | ']' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(String::new());
+                continue;
+            }
+            _ => {}
+        }
+        parts.last_mut()?.push(c);
+    }
+    parts.get(i).map(|p| p.trim().to_string()).filter(|p| !p.is_empty())
 }
 
 /// `Result<Self, E>` dans `impl GraphTool` : `Result<GraphTool, E>`.

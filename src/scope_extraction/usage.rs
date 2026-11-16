@@ -810,7 +810,30 @@ fn fin_des_parentheses_simple(s: &str) -> Option<usize> {
 
 /// **Les variables liées à une expression différée** : `let guard =
 /// self.catalog.lock().unwrap();`, `let c = setup();` suivi de
-/// `c.lock()`… Le nom, et ce qu'il faudra lire ailleurs pour le typer.
+/// `c.lock()`… Le nom, ce qu'il faudra lire ailleurs pour le typer, et
+/// **où la liaison vaut** (16 novembre 2026) : de la fin de son `let` à la fin
+/// de son bloc. Une variable redéclarée (`let outil = …?; let outil =
+/// outil.bind()?;`) a deux liaisons, chacune là où elle vaut ; elles ne
+/// s'annulent plus.
+#[derive(Debug, Default, Clone)]
+pub struct DeferredBindings(std::collections::HashMap<String, Vec<(usize, usize, super::types::DeferredType)>>);
+
+impl DeferredBindings {
+    /// The bindings visible at byte `pos`: for each name, the latest whose region holds it.
+    pub fn at(&self, pos: usize) -> std::collections::HashMap<String, super::types::DeferredType> {
+        self.0
+            .iter()
+            .filter_map(|(name, l)| {
+                l.iter().filter(|(from, until, _)| *from <= pos && pos < *until).max_by_key(|(from, _, _)| *from).map(|(_, _, d)| (name.clone(), d.clone()))
+            })
+            .collect()
+    }
+
+    pub fn names(&self) -> impl Iterator<Item = &String> {
+        self.0.keys()
+    }
+}
+
 pub fn deferred_bindings(
     noeud: Node,
     content: &str,
@@ -818,10 +841,17 @@ pub fn deferred_bindings(
     retours: &std::collections::HashMap<String, (String, bool)>,
     englobant: Option<&str>,
     champ_implicite: bool,
-) -> std::collections::HashMap<String, super::types::DeferredType> {
-    let mut vus: std::collections::HashMap<String, Option<super::types::DeferredType>> = std::collections::HashMap::new();
-    collect_deferred(noeud, content, types, retours, englobant, champ_implicite, &mut vus);
-    vus.into_iter().filter_map(|(n, d)| d.map(|d| (n, d))).collect()
+) -> DeferredBindings {
+    let mut out = DeferredBindings::default();
+    collect_deferred(noeud, content, types, retours, englobant, champ_implicite, &mut out);
+    out
+}
+
+/// The elements of a tuple pattern, in order: `(mut a, _b, c)` → [Some(a), Some(_b), Some(c)] ; an element
+/// that is not a plain name (`_`, a nested pattern) keeps its place, as `None`.
+fn tuple_elements(motif: Node, content: &str) -> Vec<Option<String>> {
+    let mut c = motif.walk();
+    motif.children(&mut c).filter(|e| !matches!(e.kind(), "(" | ")" | ",")).map(|e| simple_name(e, content)).collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -832,33 +862,39 @@ fn collect_deferred(
     retours: &std::collections::HashMap<String, (String, bool)>,
     englobant: Option<&str>,
     champ_implicite: bool,
-    vus: &mut std::collections::HashMap<String, Option<super::types::DeferredType>>,
+    out: &mut DeferredBindings,
 ) {
     if n.kind() == "let_declaration" && n.child_by_field_name("type").is_none() {
         if let (Some(motif), Some(valeur)) = (n.child_by_field_name("pattern"), n.child_by_field_name("value")) {
             // Un type connu seulement par le nom d'une enveloppe (`Arc` de
             // `Arc::new(…)`) ne dit rien : le différé de son contenu, oui.
             let informatif = |x: &String| types.get(x).is_some_and(|t| !super::receveur::is_wrapper(t));
-            if let Some(nom) = simple_name(motif, content).filter(|x| !informatif(x) && !retours.contains_key(x)) {
-                let connus: std::collections::HashMap<String, super::types::DeferredType> =
-                    vus.iter().filter_map(|(k, v)| v.clone().map(|v| (k.clone(), v))).collect();
+            // The binding is visible from the end of its `let` to the end of its block; its value reads
+            // the bindings visible at its start.
+            let (from, until) = (n.end_byte(), n.parent().map_or(usize::MAX, |p| p.end_byte()));
+            let connus = out.at(n.start_byte());
+            let lier = |out: &mut DeferredBindings, nom: String, d: super::types::DeferredType| {
+                out.0.entry(nom).or_default().push((from, until, d));
+            };
+            if motif.kind() == "tuple_pattern" {
+                // `let (a, b) = f();` : each name reads the element of its rank (`#i`).
                 if let Some(d) = deferred_with_bindings(texte(valeur, content), types, retours, &connus, englobant, champ_implicite) {
-                    match vus.get(&nom) {
-                        Some(Some(ancien)) if *ancien != d => {
-                            vus.insert(nom, None);
-                        }
-                        Some(None) => {}
-                        _ => {
-                            vus.insert(nom, Some(d));
+                    for (i, nom) in tuple_elements(motif, content).into_iter().enumerate() {
+                        if let Some(nom) = nom.filter(|x| !informatif(x) && !retours.contains_key(x)) {
+                            lier(out, nom, d.clone().with_peel(vec![format!("#{i}")]));
                         }
                     }
+                }
+            } else if let Some(nom) = simple_name(motif, content).filter(|x| !informatif(x) && !retours.contains_key(x)) {
+                if let Some(d) = deferred_with_bindings(texte(valeur, content), types, retours, &connus, englobant, champ_implicite) {
+                    lier(out, nom, d);
                 }
             }
         }
     }
     let mut c = n.walk();
     for enfant in n.named_children(&mut c) {
-        collect_deferred(enfant, content, types, retours, englobant, champ_implicite, vus);
+        collect_deferred(enfant, content, types, retours, englobant, champ_implicite, out);
     }
 }
 
