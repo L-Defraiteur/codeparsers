@@ -464,7 +464,8 @@ impl RelationshipResolver {
                 let rang = rangs.entry(base.clone()).or_insert(0);
                 let uuid = if *rang == 0 { base.clone() } else { blake3_uuid(&format!("{base}#{rang}")) };
                 *rang += 1;
-                self.uuid_par_position.insert((relative_path.clone(), scope.scope_start_byte, scope.scope_end_byte, scope.name.clone()), uuid.clone());
+                let (debut, fin) = node_position(scope);
+                self.uuid_par_position.insert((relative_path.clone(), debut, fin, scope.name.clone()), uuid.clone());
 
                 let entry = ScopeMappingEntry {
                     uuid: uuid.clone(),
@@ -476,6 +477,8 @@ impl RelationshipResolver {
                     start_line: scope.scope_start_line,
                     end_line: scope.scope_end_line,
                     visible_until_line: scope.visible_until_line,
+                    start_byte: scope.node_start_byte,
+                    end_byte: scope.node_end_byte,
                 };
 
                 // Add to name mapping
@@ -1465,8 +1468,9 @@ impl RelationshipResolver {
     /// Generate deterministic UUID for a scope.
     /// Uses blake3 (same as rag3weaver) for consistency.
     fn generate_uuid(&self, scope: &ScopeInfo, file_path: &str) -> String {
+        let (debut, fin) = node_position(scope);
         self.uuid_par_position
-            .get(&(file_path.to_string(), scope.scope_start_byte, scope.scope_end_byte, scope.name.clone()))
+            .get(&(file_path.to_string(), debut, fin, scope.name.clone()))
             .cloned()
             .unwrap_or_else(|| self.generate_base_uuid(scope, file_path))
     }
@@ -1918,3 +1922,10 @@ pub fn resolve_relative_js_module(importeur: &str, source: &str, known_files: &H
             .chain(["index.js", "index.ts", "index.tsx", "index.mjs"].iter().map(|i| format!("{base}/{i}")))
             .find(|f| known_files.contains(f))
     }
+
+/// **Where a scope is, to tell homonyms apart** : the bytes of its own node when it has one, else its
+/// scope bytes. Two comprehensions of one Python line share their scope bytes (those of the line), not
+/// their node (16 November 2026).
+fn node_position(scope: &ScopeInfo) -> (usize, usize) {
+    (scope.node_start_byte.unwrap_or(scope.scope_start_byte), scope.node_end_byte.unwrap_or(scope.scope_end_byte))
+}

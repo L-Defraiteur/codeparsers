@@ -107,6 +107,13 @@ pub struct ScopeMappingEntry {
     /// La dernière ligne où une locale se voit (`ScopeInfo::visible_until_line`).
     #[serde(default)]
     pub visible_until_line: Option<usize>,
+    /// The bytes of the scope's own node (`ScopeInfo::node_start_byte`, `node_end_byte`), when it has one :
+    /// two homonyms on one line (two comprehensions of one Python line) share their lines and their line
+    /// bytes, not their node (16 November 2026).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_byte: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_byte: Option<usize>,
 }
 
 /// Mapping global: nom → liste de scopes avec ce nom
