@@ -303,8 +303,24 @@ fn analyze(entry: &Entry, content: String) -> Result<Value, String> {
         options: None,
     };
     let started = Instant::now();
-    let parsed = noncode::parse_file(&task)?;
+    let parsed = noncode::parse_file(&task);
     let elapsed = started.elapsed().as_nanos();
+    specialized_result(parsed, elapsed)
+}
+fn specialized_result(
+    parsed: Result<noncode::NonCodeParseResult, String>,
+    elapsed: u128,
+) -> Result<Value, String> {
+    let parsed = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            return Ok(
+                json!({"routing_status":"supported","execution_status":"parser_error",
+            "ast_status":"not_exposed","capture_status":"not_applicable",
+            "diagnostic":error,"elapsed_ns":elapsed,"scopes":null,"relations":null}),
+            )
+        }
+    };
     let value = serde_json::to_value(parsed).map_err(|e| e.to_string())?;
     let mut counts = BTreeMap::new();
     array_counts(&value, "", &mut counts);
@@ -488,5 +504,18 @@ fn main() {
     if let Err(error) = run() {
         eprintln!("{error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn specialized_parser_errors_remain_observations() {
+        let row = super::specialized_result(Err("parser rejected input".into()), 17)
+            .expect("a parser error must not escape as validation_error");
+        assert_eq!(row["execution_status"], "parser_error");
+        assert_eq!(row["diagnostic"], "parser rejected input");
+        assert_eq!(row["elapsed_ns"], 17);
+        assert!(row["scopes"].is_null());
     }
 }
