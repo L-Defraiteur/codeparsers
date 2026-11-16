@@ -4006,6 +4006,13 @@ impl BaseScopeExtractionParser {
                 if exclusions.contains(&identifier) || self.stop_words.contains(&identifier) {
                     continue;
                 }
+                // **A member read on the text keeps its owner** (16 November 2026): `process.platform`
+                // at the top of a file is `platform` of `process`, not the bare name `platform` — read
+                // as such, it went to the project's `const platform`. The name before `.`, `?.` or `->`
+                // is the qualifier, as the tree gives it inside a function.
+                let qualifier = cached_regex!(r"([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\?\.|\.|->)\s*$")
+                    .captures(&line[..m.get(1).unwrap().start()])
+                    .map(|c| c[1].to_string());
 
                 references.push(IdentifierReference {
                     usage: Some(crate::scope_extraction::usage::usage_of_line(line)),
@@ -4015,8 +4022,8 @@ impl BaseScopeExtractionParser {
                     identifier,
                     line: base + line_index,
                     column: Some(m.get(1).unwrap().start()),
-                    context: None,
-                    qualifier: None,
+                    context: qualifier.as_ref().map(|_| line.trim().to_string()),
+                    qualifier,
                     kind: Some(IdentifierReferenceKind::Unknown),
                     source: None,
                     target_scope: None,
