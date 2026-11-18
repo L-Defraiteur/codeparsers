@@ -19,17 +19,7 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-pub const IDENTIFIER_STOP_WORDS: &[&str] = &[
-    "if", "for", "while", "return",
-    "const", "let", "var", "function",
-    "class", "extends", "implements", "import",
-    "from", "export", "default",
-    "this", "super", "await", "async",
-    "switch", "case", "break", "continue",
-    "try", "catch", "finally", "throw",
-    "true", "false", "null", "undefined",
-    "typeof", "instanceof", "in", "of",
-];
+/// The Python stop words now live in `data/stop_words/python.toml` (`standard::stop_words_of`).
 
 pub const BUILTIN_IDENTIFIERS: &[&str] = &[
     "Number", "String", "Boolean", "Object",
@@ -44,9 +34,11 @@ pub struct PythonScopeExtractionParser {
 
 impl PythonScopeExtractionParser {
     pub fn new(language: SupportedLanguage) -> Self {
-        Self {
-            base: BaseScopeExtractionParser::new(language),
-        }
+        let mut base = BaseScopeExtractionParser::new(language);
+        // Python's hard keywords (`data/stop_words/python.toml`): not the JavaScript list it used to copy
+        // (a Python function named `default` or `of` is a reference, 18 November 2026).
+        base.stop_words = crate::scope_extraction::standard::stop_words_of(&SupportedLanguage::Python).unwrap_or_default().into_iter().collect();
+        Self { base }
     }
 
     /// Initialize the parser (no-op in Rust — tree-sitter is a native lib, not WASM)
@@ -1171,7 +1163,7 @@ impl PythonScopeExtractionParser {
             let identifier = self.get_node_text(Some(node), content);
             if !identifier.is_empty()
                 && !exclude.contains(&identifier)
-                && !IDENTIFIER_STOP_WORDS.contains(&identifier.as_str())
+                && !self.base.stop_words.contains(&identifier)
                 && !BUILTIN_IDENTIFIERS.contains(&identifier.as_str())
             {
                 let key = format!("{}:{}:{}:root", identifier, node.start_position().row, node.start_position().column);
@@ -1206,7 +1198,7 @@ impl PythonScopeExtractionParser {
             let name = self.get_node_text(Some(function_node), content);
             if !name.is_empty()
                 && !exclude.contains(&name)
-                && !IDENTIFIER_STOP_WORDS.contains(&name.as_str())
+                && !self.base.stop_words.contains(&name)
                 && !BUILTIN_IDENTIFIERS.contains(&name.as_str())
             {
                 let key = format!("{}:{}:{}:call", name, function_node.start_position().row, function_node.start_position().column);
@@ -1242,7 +1234,7 @@ impl PythonScopeExtractionParser {
 
             if !attribute.is_empty()
                 && !exclude.contains(&attribute)
-                && !IDENTIFIER_STOP_WORDS.contains(&attribute.as_str())
+                && !self.base.stop_words.contains(&attribute)
                 && !BUILTIN_IDENTIFIERS.contains(&attribute.as_str())
             {
                 // Skip if qualifier is in exclusions, sauf `self`/`cls` (le

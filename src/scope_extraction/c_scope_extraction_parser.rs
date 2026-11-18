@@ -22,27 +22,7 @@ use crate::scope_extraction::types::ScopeInfoType;
 const C_DOC_PREFIXES: &[&str] = &["///", "//!", "//"];
 use std::collections::HashSet;
 
-pub const C_STOP_WORDS: &[&str] = &[
-    "if", "for", "while", "return",
-    "const", "let", "var", "function",
-    "class", "extends", "implements", "import",
-    "from", "export", "default",
-    "this", "super", "await", "async",
-    "switch", "case", "break", "continue",
-    "try", "catch", "finally", "throw",
-    "true", "false", "null", "undefined",
-    "typeof", "instanceof", "in", "of",
-    "auto", "break", "case", "char",
-    "const", "continue", "default", "do",
-    "double", "else", "enum", "extern",
-    "float", "for", "goto", "if",
-    "inline", "int", "long", "register",
-    "restrict", "return", "short", "signed",
-    "sizeof", "static", "struct", "switch",
-    "typedef", "union", "unsigned", "void",
-    "volatile", "while", "_Bool", "_Complex",
-    "_Imaginary",
-];
+/// The C stop words now live in `data/stop_words/c.toml` (`standard::stop_words_of`).
 
 pub const C_BUILTIN_IDENTIFIERS: &[&str] = &[
     "printf", "scanf", "malloc", "free",
@@ -108,7 +88,9 @@ impl CScopeExtractionParser {
     pub fn new() -> Self {
         let mut base = BaseScopeExtractionParser::new(SupportedLanguage::C);
         base.node_types = C_NODE_TYPES.clone();
-        base.stop_words = C_STOP_WORDS.iter().map(|s| s.to_string()).collect();
+        // The words the C grammar reserves (`data/stop_words/c.toml`): not the JavaScript list it used to copy
+        // (a C function named `from` or `of` is a reference, 18 November 2026).
+        base.stop_words = crate::scope_extraction::standard::stop_words_of(&SupportedLanguage::C).unwrap_or_default().into_iter().collect();
         base.builtin_identifiers = C_BUILTIN_IDENTIFIERS.iter().map(|s| s.to_string()).collect();
         Self { base }
     }

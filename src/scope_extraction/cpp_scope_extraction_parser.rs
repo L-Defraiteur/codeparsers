@@ -2,7 +2,6 @@ use crate::css::css_parser::SyntaxNode;
 use crate::scope_extraction::base_scope_extraction_parser::BaseScopeExtractionParser;
 use crate::scope_extraction::base_scope_extraction_parser::NodeTypeConfig;
 use crate::scope_extraction::c_scope_extraction_parser::C_BUILTIN_IDENTIFIERS;
-use crate::scope_extraction::c_scope_extraction_parser::C_STOP_WORDS;
 use crate::parallel::parser_worker::SupportedLanguage;
 use crate::scope_extraction::types::IdentifierReference;
 use crate::scope_extraction::types::ClassMemberInfo;

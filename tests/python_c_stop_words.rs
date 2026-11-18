@@ -21,7 +21,7 @@ fn identifiers(file: &str, scope: &str, source: &str) -> Vec<String> {
 
 #[test]
 fn a_python_name_that_is_a_javascript_keyword_is_a_reference() {
-    let src = "def helper():\n    return 2\n\ndef default():\n    return 1\n\ndef of(x):\n    return x\n\ndef this():\n    return 3\n\nclass C:\n    def function(self):\n        return 0\n\ndef start(c):\n    return helper() + default() + of(2) + c.function() + this()\n";
+    let src = "def helper():\n    return 2\n\ndef default():\n    return 1\n\ndef of(x):\n    return x\n\ndef this():\n    return 3\n\nclass C:\n    def function(self):\n        return 0\n\ndef start():\n    return helper() + default() + of(2) + C().function() + this()\n";
     let ids = identifiers("lib.py", "start", src);
     assert!(ids.iter().any(|i| i == "helper"), "the control name is read: {ids:?}");
     for name in ["default", "of", "function", "this"] {
