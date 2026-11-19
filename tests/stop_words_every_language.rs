@@ -1,7 +1,8 @@
 //! **The stop words and the built-in names of each language are its own** (rag3db ticket « les mots vides de C++, C# et
 //! Go copient JavaScript », 19 November 2026; Lucie's rule: every language in one lot). C++, C# and Go copied the
 //! JavaScript stop words (`function`, `of`, `undefined`…), and C#, Go and Python its built-in names (`Symbol`, `Map`,
-//! `Number`…): a function or a class of the project named so was never a reference. One case per language.
+//! `Number`…): a function or a class of the project named so was never a reference. One case per language (C++ copied
+//! the stop words only: its built-in names had none of JavaScript's).
 
 use std::collections::HashMap;
 
@@ -29,8 +30,8 @@ fn cases() -> Vec<(&'static str, &'static str, &'static str, &'static str, Vec<&
             "C++",
             "lib.cpp",
             "start",
-            "struct Symbol { int v; };\nint of(int x) { return x; }\nint function(int x) { return x; }\nint start() { Symbol s; return of(1) + function(2) + s.v; }\n",
-            vec!["of", "function", "Symbol"],
+            "int of(int x) { return x; }\nint function(int x) { return x; }\nint start() { return of(1) + function(2); }\n",
+            vec!["of", "function"],
             vec!["return", "int"],
         ),
         (
