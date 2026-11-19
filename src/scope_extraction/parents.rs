@@ -5,8 +5,6 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::base_scope_extraction_parser::SyntaxNode;
-
 static TREE_PARENT_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 /// How many times `Node::parent` of tree-sitter has walked down a tree for the extraction, in this process.
@@ -14,8 +12,8 @@ pub fn tree_parent_calls() -> usize {
     TREE_PARENT_CALLS.load(Ordering::Relaxed)
 }
 
-/// The parent of `node`, asked to the tree.
-pub fn parent_of(node: SyntaxNode) -> Option<SyntaxNode> {
+/// The parent of `node`, asked to the tree. Of any lifetime: the parent is of the same tree.
+pub fn parent_of<'tree>(node: tree_sitter::Node<'tree>) -> Option<tree_sitter::Node<'tree>> {
     TREE_PARENT_CALLS.fetch_add(1, Ordering::Relaxed);
     node.parent()
 }
