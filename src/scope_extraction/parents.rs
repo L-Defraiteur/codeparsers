@@ -16,13 +16,13 @@ use super::base_scope_extraction_parser::SyntaxNode;
 static TREE_PARENT_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 /// How many times `Node::parent` of tree-sitter has walked down a tree for the extraction, in this process: once per
-/// node outside an index (a root, a node of another tree, a read outside any parse).
+/// node outside an index (a node of another tree, a read outside any parse).
 pub fn tree_parent_calls() -> usize {
     TREE_PARENT_CALLS.load(Ordering::Relaxed)
 }
 
 thread_local! {
-    static PARENTS: RefCell<Vec<HashMap<usize, SyntaxNode>>> = const { RefCell::new(Vec::new()) };
+    static PARENTS: RefCell<Vec<(usize, HashMap<usize, SyntaxNode>)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Takes the index of its tree away when it drops. Keep it for as long as the nodes of the tree are read.
@@ -57,7 +57,7 @@ pub fn index(root: SyntaxNode) -> ParentsGuard {
                 break;
             }
             if !cursor.goto_parent() {
-                PARENTS.with(|p| p.borrow_mut().push(parents));
+                PARENTS.with(|p| p.borrow_mut().push((root.id(), parents)));
                 return ParentsGuard(());
             }
             stack.pop();
@@ -68,11 +68,13 @@ pub fn index(root: SyntaxNode) -> ParentsGuard {
 /// The parent of `node`: from the index of the tree being parsed, or from the tree itself. Of any lifetime: the
 /// parent is of the same tree as the node, and the index holds the nodes of a tree that lives while its guard does.
 pub fn parent_of<'tree>(node: tree_sitter::Node<'tree>) -> Option<tree_sitter::Node<'tree>> {
-    let indexed = PARENTS.with(|p| p.borrow().last().and_then(|m| m.get(&node.id()).copied()));
+    // The root of the indexed tree has no parent: it is not in the index, and the tree is not asked for it.
+    let indexed = PARENTS.with(|p| p.borrow().last().map(|(root, m)| if *root == node.id() { Ok(None) } else { m.get(&node.id()).copied().map(Some).ok_or(()) }));
     match indexed {
+        Some(Ok(None)) => None,
         // SAFETY: the indexed parent is a node of the same tree as `node`, alive for `'tree`.
-        Some(parent) => Some(unsafe { std::mem::transmute::<SyntaxNode, tree_sitter::Node<'tree>>(parent) }),
-        None => {
+        Some(Ok(Some(parent))) => Some(unsafe { std::mem::transmute::<SyntaxNode, tree_sitter::Node<'tree>>(parent) }),
+        _ => {
             TREE_PARENT_CALLS.fetch_add(1, Ordering::Relaxed);
             node.parent()
         }
