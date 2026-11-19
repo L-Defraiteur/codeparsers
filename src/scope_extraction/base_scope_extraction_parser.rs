@@ -288,6 +288,8 @@ impl BaseScopeExtractionParser {
         // Safety: tree lives for the entire scope of parse_file and no nodes escape.
         // SyntaxNode = Node<'static> is the project-wide alias, so we extend the borrow lifetime.
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
+        // The parents of this tree, read once (`parents`): kept while its nodes are read.
+        let _parents = crate::scope_extraction::parents::index(root_node);
 
         let mut scopes: Vec<ScopeInfo> = Vec::new();
 

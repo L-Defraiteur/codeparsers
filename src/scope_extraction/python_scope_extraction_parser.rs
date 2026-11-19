@@ -56,6 +56,8 @@ impl PythonScopeExtractionParser {
         let tree = parser.parse(content, None).expect("Failed to parse content");
         // SAFETY: tree lives for the entire duration of this function, and no node escapes it
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
+        // The parents of this tree, read once (`parents`): kept while its nodes are read.
+        let _parents = crate::scope_extraction::parents::index(root_node);
 
         let mut scopes: Vec<ScopeInfo> = Vec::new();
 

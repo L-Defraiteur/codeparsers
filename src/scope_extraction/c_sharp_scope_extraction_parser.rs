@@ -137,6 +137,8 @@ impl CSharpScopeExtractionParser {
             .expect("failed to set C# language");
         let tree = parser.parse(content, None).expect("failed to parse");
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
+        // The parents of this tree, read once (`parents`): kept while its nodes are read.
+        let _parents = crate::scope_extraction::parents::index(root_node);
 
         // Les `using` se lisent sur l'arbre (14 novembre 2026) : les expressions de la base sont celles
         // de JavaScript et n'en trouvaient aucun.

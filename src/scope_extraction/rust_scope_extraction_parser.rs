@@ -125,6 +125,8 @@ impl RustScopeExtractionParser {
             .expect("failed to set Rust language");
         let tree = parser.parse(content, None).expect("failed to parse");
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
+        // The parents of this tree, read once (`parents`): kept while its nodes are read.
+        let _parents = crate::scope_extraction::parents::index(root_node);
 
         // Les `use`, lus sur l'AST : l'extracteur commun est celui de
         // TypeScript (regex `import … from`) et n'en relevait aucun.
