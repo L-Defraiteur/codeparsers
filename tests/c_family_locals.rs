@@ -52,8 +52,9 @@ fn a_local_variable_of_c_or_cpp_is_not_a_reference() {
 /// each to the only declaration of its method (`auto tableSchema = FactorizedTableSchema(); tableSchema.appendColumn(…)`).
 #[test]
 fn a_method_called_on_a_cpp_local_keeps_its_link_by_name() {
-    // The shape of the engine (aggregate_hash_table.cpp): a local bound to a construction whose type is deferred.
-    let source = "FactorizedTableSchema getTableSchemaForKeys() {\n    auto tableSchema = FactorizedTableSchema();\n    auto columnSchema = ColumnSchema(false, 0, 8);\n    tableSchema.appendColumn(std::move(columnSchema));\n    return tableSchema;\n}\n";
+    // The shape of the engine (aggregate_hash_table.cpp): in a method defined out of its class, a local bound to a
+    // construction whose type is deferred.
+    let source = "FactorizedTableSchema AggregateHashTableUtils::getTableSchemaForKeys() {\n    auto tableSchema = FactorizedTableSchema();\n    auto columnSchema = ColumnSchema(false, 0, 8);\n    tableSchema.appendColumn(std::move(columnSchema));\n    return tableSchema;\n}\n";
     let refs = references("lib.cpp", "getTableSchemaForKeys", source);
     let append = refs.iter().find(|r| r.identifier == "appendColumn").unwrap_or_else(|| panic!("appendColumn is a reference: {refs:?}"));
     assert!(append.qualifier_deferred.is_some(), "the shape of the engine: the receiver's type is deferred ({append:?})");
