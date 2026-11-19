@@ -2273,7 +2273,7 @@ impl BaseScopeExtractionParser {
                 if let Some(name) = c_declarator_name(declarator) {
                     let text = self.get_node_text(Some(name), content);
                     if !text.is_empty() {
-                        symbols.insert(local_binding(&text));
+                        symbols.insert(c_local(&text));
                     }
                 }
             }
@@ -2582,9 +2582,12 @@ impl BaseScopeExtractionParser {
                     qualifier = crate::scope_extraction::usage::token_tree_qualifier(current, content);
                 }
 
-                // Une variable liée par `let`, `for` ou `:=` cache le nom nu,
+                // Une variable liée par `let`, `for` ou `:=`, ou déclarée en C ou C++, cache le nom nu,
                 // pas le membre d'un autre objet (`x.count` n'est pas `count`).
-                if qualifier.is_none() && exclude.contains(&local_binding(&identifier)) && !in_own_initializer(current, &identifier, content) {
+                if qualifier.is_none()
+                    && (exclude.contains(&local_binding(&identifier)) || exclude.contains(&c_local(&identifier)))
+                    && !in_own_initializer(current, &identifier, content)
+                {
                     return;
                 }
 
@@ -4968,6 +4971,13 @@ fn c_declarator_name(mut node: SyntaxNode) -> Option<SyntaxNode> {
             _ => return None,
         }
     }
+}
+
+/// La clé sous laquelle une variable locale du C ou du C++ entre dans l'ensemble d'exclusion : elle cache le nom nu, comme
+/// `local_binding`, mais n'est pas une liaison de Rust — un appel de méthode sur elle garde son lien par le nom, la règle
+/// du receveur non typé ne la voit pas (577 liens justes coupés sur le moteur sinon, 19 novembre 2026).
+pub fn c_local(nom: &str) -> String {
+    format!("\u{1}c:{nom}")
 }
 
 /// La clé sous laquelle une variable locale liée par un motif (`let x`,
