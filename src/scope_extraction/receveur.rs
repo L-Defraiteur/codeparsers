@@ -472,23 +472,23 @@ pub fn typed_bindings_full(noeud: Node, content: &str) -> Bindings {
 
 /// La fin de la région d'une liaison faite par `n` : son bloc, sinon son parent.
 fn fin_du_bloc(n: Node) -> usize {
-    let mut a = n.parent();
+    let mut a = crate::scope_extraction::parents::parent_of(n);
     while let Some(p) = a {
         if p.kind() == "block" {
             return p.end_byte();
         }
-        a = p.parent();
+        a = crate::scope_extraction::parents::parent_of(p);
     }
-    n.parent().map_or(n.end_byte(), |p| p.end_byte())
+    crate::scope_extraction::parents::parent_of(n).map_or(n.end_byte(), |p| p.end_byte())
 }
 
 fn fonction_englobante(n: Node) -> (usize, usize) {
-    let mut a = n.parent();
+    let mut a = crate::scope_extraction::parents::parent_of(n);
     while let Some(p) = a {
         if matches!(p.kind(), "function_item" | "closure_expression") {
             return (p.start_byte(), p.end_byte());
         }
-        a = p.parent();
+        a = crate::scope_extraction::parents::parent_of(p);
     }
     (n.start_byte(), n.end_byte())
 }

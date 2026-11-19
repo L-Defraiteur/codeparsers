@@ -1005,7 +1005,7 @@ impl RustScopeExtractionParser {
         // Une fermeture capture les paramètres et les locales de ce qui
         // l'entoure : `name` dans `|p| p.name == name` est le paramètre de la
         // fonction, pas une méthode `name` du fichier.
-        let mut englobant = node.parent();
+        let mut englobant = crate::scope_extraction::parents::parent_of(node);
         while let Some(n) = englobant {
             match n.kind() {
                 "closure_expression" => {
@@ -1018,7 +1018,7 @@ impl RustScopeExtractionParser {
                 }
                 _ => {}
             }
-            englobant = n.parent();
+            englobant = crate::scope_extraction::parents::parent_of(n);
         }
 
         let identifier_references = self.base.extract_identifier_references(node, content, reference_exclusions);
@@ -1157,7 +1157,7 @@ impl RustScopeExtractionParser {
 
     /// Try to extract closure name from parent let binding (e.g., let adder = |a, b| a + b;)
     fn extract_closure_name(&self, node: SyntaxNode, content: &str) -> Option<String> {
-        let parent = node.parent()?;
+        let parent = crate::scope_extraction::parents::parent_of(node)?;
         if parent.kind() == "let_declaration" {
             let pattern = parent.child_by_field_name("pattern")?;
             if pattern.kind() == "identifier" {
@@ -1487,8 +1487,7 @@ fn visit_rust_type_refs(
                 // Un type à chemin (`crate::dialect::SchemaDialect`) garde son
                 // chemin en qualificatif, comme un appel par chemin : il dit
                 // de quel module vient le type.
-                let qualifier = current
-                    .parent()
+                let qualifier = crate::scope_extraction::parents::parent_of(current)
                     .filter(|p| p.kind() == "scoped_type_identifier" && p.child_by_field_name("name").is_some_and(|n| n.id() == current.id()))
                     .and_then(|p| p.child_by_field_name("path"))
                     .map(|chemin| parser.base.get_node_text(Some(chemin), content));

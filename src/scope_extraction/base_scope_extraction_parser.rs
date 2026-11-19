@@ -1087,7 +1087,7 @@ impl BaseScopeExtractionParser {
                 })
                 .filter(|s| !s.is_empty());
 
-            let modifiers = self.extract_modifiers(node.parent().unwrap_or(node), content);
+            let modifiers = self.extract_modifiers(crate::scope_extraction::parents::parent_of(node).unwrap_or(node), content);
             let signature = self.build_signature("const", &name, &parameters, return_type.as_deref(), &modifiers);
             let content_dedented = self.dedent_content(&node_content);
 
@@ -1180,7 +1180,7 @@ impl BaseScopeExtractionParser {
                 }
             }
 
-            let modifiers = self.extract_modifiers(node.parent().unwrap_or(node), content);
+            let modifiers = self.extract_modifiers(crate::scope_extraction::parents::parent_of(node).unwrap_or(node), content);
             let mut signature = format!("{} {}", variable_kind, name);
             if let Some(ref vt) = variable_type {
                 signature.push_str(&format!(": {}", vt));
@@ -1645,7 +1645,7 @@ impl BaseScopeExtractionParser {
     pub fn extract_decorator_details(&self, node: SyntaxNode, content: &str) -> Vec<DecoratorInfo> {
         let mut decorators = Vec::new();
         let mut nodes_to_check = vec![node];
-        if let Some(parent) = node.parent() {
+        if let Some(parent) = crate::scope_extraction::parents::parent_of(node) {
             if parent.kind() == "export_statement" {
                 nodes_to_check.insert(0, parent);
             }
@@ -2197,9 +2197,9 @@ impl BaseScopeExtractionParser {
     /// l'accès qualifié (`node.with_delai(t)` reste un appel de méthode).
     fn collect_pattern_bindings(&self, motif: SyntaxNode, content: &str, symbols: &mut HashSet<String>) {
         if motif.kind() == "identifier" {
-            let parent = motif.parent().map(|p| p.kind()).unwrap_or("");
+            let parent = crate::scope_extraction::parents::parent_of(motif).map(|p| p.kind()).unwrap_or("");
             let est_un_chemin = matches!(parent, "tuple_struct_pattern" | "struct_pattern" | "scoped_identifier")
-                && motif.parent().and_then(|p| p.child_by_field_name("type")).is_some_and(|t| t.id() == motif.id());
+                && crate::scope_extraction::parents::parent_of(motif).and_then(|p| p.child_by_field_name("type")).is_some_and(|t| t.id() == motif.id());
             if !est_un_chemin && parent != "scoped_identifier" {
                 let text = self.get_node_text(Some(motif), content);
                 if !text.is_empty() {
@@ -2352,7 +2352,7 @@ impl BaseScopeExtractionParser {
                 if n.kind() == "function_item" {
                     break;
                 }
-                fonction = n.parent();
+                fonction = crate::scope_extraction::parents::parent_of(n);
             }
             if let Some(f) = fonction {
                 for nom in crate::scope_extraction::usage::closure_bindings(f, content) {
@@ -2537,7 +2537,7 @@ impl BaseScopeExtractionParser {
                 return;
             }
 
-            if let Some(parent) = current.parent() {
+            if let Some(parent) = crate::scope_extraction::parents::parent_of(current) {
                 // Skip key in { key: value } pair
                 if parent.kind() == "pair" {
                     if let Some(first_named) = parent.named_child(0) {
@@ -2575,7 +2575,7 @@ impl BaseScopeExtractionParser {
                 && !self.builtin_identifiers.contains(&identifier)
             {
                 let mut qualifier: Option<String> = None;
-                if let Some(parent) = current.parent() {
+                if let Some(parent) = crate::scope_extraction::parents::parent_of(current) {
                     if self.node_types.member_expression.iter().any(|me| me == parent.kind()) {
                         let (object_node, property_node) = self.get_property_access_parts(parent);
                         if let (Some(prop), Some(obj)) = (property_node, object_node) {
@@ -2686,7 +2686,7 @@ impl BaseScopeExtractionParser {
     /// Check if an identifier node is a definition (not a reference)
 
     pub fn is_definition_identifier(&self, node: SyntaxNode) -> bool {
-        let parent = match node.parent() {
+        let parent = match crate::scope_extraction::parents::parent_of(node) {
             Some(p) => p,
             None => return false,
         };
@@ -5024,7 +5024,7 @@ pub fn masquer_les_macros_d_attribut(content: &str) -> std::borrow::Cow<'_, str>
 pub(crate) fn segment_de_module(n: SyntaxNode, content: &str) -> bool {
     let est_chemin = |k: &str| matches!(k, "scoped_identifier" | "scoped_type_identifier" | "scoped_use_list");
     let meme = |a: Option<SyntaxNode>, b: SyntaxNode| a.is_some_and(|x| x.id() == b.id());
-    let Some(p) = n.parent() else { return false };
+    let Some(p) = crate::scope_extraction::parents::parent_of(n) else { return false };
     let minuscule = content.get(n.start_byte()..n.end_byte()).is_some_and(|t| t.starts_with(|c: char| c.is_lowercase()));
     // Dans les jetons d'une macro (`assert!(crate::b::run())`) : un nom suivi
     // de `::` est un préfixe de chemin, comme hors macro.
@@ -5035,7 +5035,7 @@ pub(crate) fn segment_de_module(n: SyntaxNode, content: &str) -> bool {
         return false;
     }
     let prefixe = meme(p.child_by_field_name("path"), n)
-        || (meme(p.child_by_field_name("name"), n) && p.parent().is_some_and(|gp| est_chemin(gp.kind()) && meme(gp.child_by_field_name("path"), p)));
+        || (meme(p.child_by_field_name("name"), n) && crate::scope_extraction::parents::parent_of(p).is_some_and(|gp| est_chemin(gp.kind()) && meme(gp.child_by_field_name("path"), p)));
     prefixe && minuscule
 }
 
@@ -5049,7 +5049,7 @@ pub fn typed_binding(nom: &str) -> String {
 /// justement `nom` : dans `let message = message(1);`, le second `message`
 /// est la fonction, la variable n'existe pas encore.
 fn in_own_initializer(noeud: tree_sitter::Node, nom: &str, content: &str) -> bool {
-    let mut a = noeud.parent();
+    let mut a = crate::scope_extraction::parents::parent_of(noeud);
     while let Some(p) = a {
         let (motif, valeur) = match p.kind() {
             "let_declaration" => (p.child_by_field_name("pattern"), p.child_by_field_name("value")),
@@ -5063,7 +5063,7 @@ fn in_own_initializer(noeud: tree_sitter::Node, nom: &str, content: &str) -> boo
             });
             return dedans && lie;
         }
-        a = p.parent();
+        a = crate::scope_extraction::parents::parent_of(p);
     }
     false
 }
@@ -5200,7 +5200,7 @@ fn portee_d_une_locale(decl_node: SyntaxNode, variable_kind: &str) -> Option<usi
         "generator_function_declaration", "generator_function",
     ];
     const BLOCS: &[&str] = &["statement_block", "switch_body", "for_statement", "for_in_statement", "class_static_block"];
-    let mut n = decl_node.parent();
+    let mut n = crate::scope_extraction::parents::parent_of(decl_node);
     while let Some(p) = n {
         if p.kind() == "program" {
             return None;
@@ -5209,7 +5209,7 @@ fn portee_d_une_locale(decl_node: SyntaxNode, variable_kind: &str) -> Option<usi
         if ferme {
             return Some(p.end_position().row + 1);
         }
-        n = p.parent();
+        n = crate::scope_extraction::parents::parent_of(p);
     }
     None
 }

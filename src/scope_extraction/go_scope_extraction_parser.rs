@@ -1105,7 +1105,7 @@ impl GoScopeExtractionParser {
             // Handle type_identifier (standalone type references)
             if kind == "type_identifier" {
                 // Skip if inside a qualified_type (handled above)
-                let parent_kind = node.parent().map(|p| p.kind().to_string());
+                let parent_kind = crate::scope_extraction::parents::parent_of(node).map(|p| p.kind().to_string());
                 if parent_kind.as_deref() != Some("qualified_type") {
                     let identifier = base.get_node_text(Some(node), content);
                     if !identifier.is_empty()
