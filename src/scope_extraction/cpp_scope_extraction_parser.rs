@@ -144,6 +144,8 @@ impl CppScopeExtractionParser {
         let masque = super::base_scope_extraction_parser::masquer_les_macros_d_attribut(content);
         let tree = parser.parse(masque.as_ref(), None).expect("failed to parse");
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
+        // The parents of this tree, read once (`parents`): kept while its nodes are read.
+        let _parents = crate::scope_extraction::parents::index(root_node);
 
         // Les `#include`, lus sur l'AST : l'extracteur commun est celui de
         // TypeScript et n'en relevait aucun.
@@ -721,7 +723,7 @@ impl CppScopeExtractionParser {
                 Some(self.base.get_node_text(Some(x), content))
             })
             .or_else(|| {
-                let p = node.parent().filter(|p| p.kind() == "type_definition")?;
+                let p = crate::scope_extraction::parents::parent_of(node).filter(|p| p.kind() == "type_definition")?;
                 let d = p.child_by_field_name("declarator")?;
                 Some(self.base.get_node_text(Some(d), content))
             })
@@ -1306,7 +1308,7 @@ impl CppScopeExtractionParser {
     /// Try to extract lambda name from parent context (e.g., auto fn = [](int x) { ... })
 
     fn extract_lambda_name(&self, node: SyntaxNode, content: &str) -> Option<String> {
-        let parent = node.parent()?;
+        let parent = crate::scope_extraction::parents::parent_of(node)?;
         if parent.kind() == "init_declarator" {
             let mut cursor = parent.walk();
             for child in parent.children(&mut cursor) {
@@ -1328,7 +1330,7 @@ impl CppScopeExtractionParser {
             .map(|n| self.base.get_node_text(Some(n), content))
             .or_else(|| {
                 // `typedef enum { … } Nom;` : le nom du typedef.
-                let p = node.parent().filter(|p| p.kind() == "type_definition")?;
+                let p = crate::scope_extraction::parents::parent_of(node).filter(|p| p.kind() == "type_definition")?;
                 p.child_by_field_name("declarator").map(|d| self.base.get_node_text(Some(d), content))
             })
             .unwrap_or_else(|| "AnonymousEnum".to_string());

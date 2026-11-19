@@ -133,6 +133,8 @@ impl GoScopeExtractionParser {
             .expect("failed to set Go language");
         let tree = parser.parse(content, None).expect("failed to parse");
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
+        // The parents of this tree, read once (`parents`): kept while its nodes are read.
+        let _parents = crate::scope_extraction::parents::index(root_node);
 
         // Les imports Go se lisent sur l'arbre (14 novembre 2026) : les expressions de la base sont
         // celles de JavaScript (`import X from '…'`) et n'en trouvaient aucun.
@@ -1105,7 +1107,7 @@ impl GoScopeExtractionParser {
             // Handle type_identifier (standalone type references)
             if kind == "type_identifier" {
                 // Skip if inside a qualified_type (handled above)
-                let parent_kind = node.parent().map(|p| p.kind().to_string());
+                let parent_kind = crate::scope_extraction::parents::parent_of(node).map(|p| p.kind().to_string());
                 if parent_kind.as_deref() != Some("qualified_type") {
                     let identifier = base.get_node_text(Some(node), content);
                     if !identifier.is_empty()

@@ -97,7 +97,7 @@ fn est_le_champ(parent: Node, champ: &str, n: Node) -> bool {
 pub fn usage_of(noeud: Node) -> UsageKind {
     // Héritage et import se lisent sur les ancêtres : `extends a.B<T>` ou
     // `use crate::a::B` placent l'identifiant plusieurs niveaux plus bas.
-    let mut a = noeud.parent();
+    let mut a = crate::scope_extraction::parents::parent_of(noeud);
     while let Some(p) = a {
         let k = p.kind();
         if HERITAGE.contains(&k) {
@@ -107,13 +107,13 @@ pub fn usage_of(noeud: Node) -> UsageKind {
             return UsageKind::Import;
         }
         // Python : `class C(Base)`, la liste des superclasses.
-        if k == "argument_list" && p.parent().is_some_and(|g| g.kind() == "class_definition" && est_le_champ(g, "superclasses", p)) {
+        if k == "argument_list" && crate::scope_extraction::parents::parent_of(p).is_some_and(|g| g.kind() == "class_definition" && est_le_champ(g, "superclasses", p)) {
             return UsageKind::Inheritance;
         }
         // Rust : `impl Trait for X`, le trait.
         if k == "impl_item" {
             let mut n = noeud;
-            while let Some(q) = n.parent() {
+            while let Some(q) = crate::scope_extraction::parents::parent_of(n) {
                 if q.id() == p.id() {
                     break;
                 }
@@ -132,13 +132,13 @@ pub fn usage_of(noeud: Node) -> UsageKind {
         {
             break;
         }
-        a = p.parent();
+        a = crate::scope_extraction::parents::parent_of(p);
     }
 
     // Remonter la chaîne d'accès tant qu'on en est le dernier segment :
     // dans `a.b.c()`, c'est `a.b.c` qui est appelé.
     let mut n = noeud;
-    while let Some(p) = n.parent() {
+    while let Some(p) = crate::scope_extraction::parents::parent_of(n) {
         let k = p.kind();
         let dernier = p.named_child(p.named_child_count().saturating_sub(1) as u32).is_some_and(|c| c.id() == n.id());
         if ACCES.contains(&k) && dernier {
@@ -153,7 +153,7 @@ pub fn usage_of(noeud: Node) -> UsageKind {
         }
     }
 
-    if let Some(p) = n.parent() {
+    if let Some(p) = crate::scope_extraction::parents::parent_of(n) {
         let k = p.kind();
         // Dans les arguments d'une macro Rust (`write!(f, "{}", self.f())`), il
         // n'y a que des jetons : un nom suivi d'une parenthèse y est un appel.
@@ -210,7 +210,7 @@ fn segment_de_jetons(n: Node) -> bool {
 /// `crate::b::run`, `x` pour `x.len()`, `self.a` pour `self.a.f()`. `None`
 /// hors d'un `token_tree`, ou sans `::` / `.` juste avant.
 pub fn token_tree_qualifier(n: Node, content: &str) -> Option<String> {
-    if n.parent()?.kind() != "token_tree" {
+    if crate::scope_extraction::parents::parent_of(n)?.kind() != "token_tree" {
         return None;
     }
     let sep = n.prev_sibling()?;
@@ -327,11 +327,11 @@ pub fn lock_by_call(methode: &str, type_du_champ: &str) -> Option<super::types::
 /// un scope : relié par le nom, il désignait la fonction homonyme. Dans une
 /// macro comme hors macro.
 pub fn rust_field_read(n: Node) -> bool {
-    let Some(p) = n.parent() else { return false };
+    let Some(p) = crate::scope_extraction::parents::parent_of(n) else { return false };
     match p.kind() {
         "field_expression" => {
             p.child_by_field_name("field").is_some_and(|f| f.id() == n.id())
-                && !p.parent().is_some_and(|g| g.kind() == "call_expression" && g.child_by_field_name("function").is_some_and(|f| f.id() == p.id()))
+                && !crate::scope_extraction::parents::parent_of(p).is_some_and(|g| g.kind() == "call_expression" && g.child_by_field_name("function").is_some_and(|f| f.id() == p.id()))
         }
         "token_tree" => {
             n.prev_sibling().is_some_and(|s| s.kind() == ".")
@@ -347,7 +347,7 @@ pub fn rust_field_read(n: Node) -> bool {
 /// segments suivants, eux, portent le qualificatif de ceux qui les précèdent.
 pub fn token_tree_head(n: Node) -> bool {
     let sep = |s: Node| matches!(s.kind(), "::" | ".");
-    n.parent().is_some_and(|p| p.kind() == "token_tree") && n.next_sibling().is_some_and(sep) && !n.prev_sibling().is_some_and(sep)
+    crate::scope_extraction::parents::parent_of(n).is_some_and(|p| p.kind() == "token_tree") && n.next_sibling().is_some_and(sep) && !n.prev_sibling().is_some_and(sep)
 }
 
 pub(crate) fn texte<'a>(n: Node, content: &'a str) -> &'a str {
@@ -437,12 +437,12 @@ fn element_cpp(droite: Node, boucle: Node, content: &str) -> Option<String> {
     if droite.kind() != "identifier" || nom.is_empty() {
         return None;
     }
-    let mut fonction = boucle.parent();
+    let mut fonction = crate::scope_extraction::parents::parent_of(boucle);
     while let Some(f) = fonction {
         if matches!(f.kind(), "function_definition" | "lambda_expression") {
             break;
         }
-        fonction = f.parent();
+        fonction = crate::scope_extraction::parents::parent_of(f);
     }
     let mut ecrits: Vec<String> = Vec::new();
     fn chercher(n: Node, nom: &str, avant: usize, content: &str, ecrits: &mut Vec<String>) {
@@ -511,12 +511,12 @@ pub fn closure_bindings(noeud: Node, content: &str) -> Vec<String> {
 
 /// `Self` désigne le type de l'`impl` qui contient le nœud.
 fn enclosing_impl_type(n: Node, content: &str) -> Option<String> {
-    let mut a = n.parent();
+    let mut a = crate::scope_extraction::parents::parent_of(n);
     while let Some(p) = a {
         if p.kind() == "impl_item" {
             return p.child_by_field_name("type").and_then(|t| base_type_name(texte(t, content)));
         }
-        a = p.parent();
+        a = crate::scope_extraction::parents::parent_of(p);
     }
     None
 }
@@ -703,7 +703,7 @@ pub fn enclosing_type(n: Node, content: &str) -> Option<String> {
             }
             _ => {}
         }
-        a = p.parent();
+        a = crate::scope_extraction::parents::parent_of(p);
     }
     None
 }
@@ -871,7 +871,7 @@ fn collect_deferred(
             let informatif = |x: &String| types.get(x).is_some_and(|t| !super::receveur::is_wrapper(t));
             // The binding is visible from the end of its `let` to the end of its block; its value reads
             // the bindings visible at its start.
-            let (from, until) = (n.end_byte(), n.parent().map_or(usize::MAX, |p| p.end_byte()));
+            let (from, until) = (n.end_byte(), crate::scope_extraction::parents::parent_of(n).map_or(usize::MAX, |p| p.end_byte()));
             let connus = out.at(n.start_byte());
             let lier = |out: &mut DeferredBindings, nom: String, d: super::types::DeferredType| {
                 out.0.entry(nom).or_default().push((from, until, d));

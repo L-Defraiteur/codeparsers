@@ -106,6 +106,8 @@ impl CScopeExtractionParser {
         let masque = super::base_scope_extraction_parser::masquer_les_macros_d_attribut(content);
         let tree = parser.parse(masque.as_ref(), None).expect("failed to parse");
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
+        // The parents of this tree, read once (`parents`): kept while its nodes are read.
+        let _parents = crate::scope_extraction::parents::index(root_node);
 
         // Les `#include`, comme en C++ : la visibilité par les includes (rag3weaver) les lit. La voie
         // générique n'en voyait aucun, et une source C ne voyait aucun autre fichier.

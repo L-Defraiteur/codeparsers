@@ -56,6 +56,8 @@ impl PythonScopeExtractionParser {
         let tree = parser.parse(content, None).expect("Failed to parse content");
         // SAFETY: tree lives for the entire duration of this function, and no node escapes it
         let root_node: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
+        // The parents of this tree, read once (`parents`): kept while its nodes are read.
+        let _parents = crate::scope_extraction::parents::index(root_node);
 
         let mut scopes: Vec<ScopeInfo> = Vec::new();
 
@@ -649,7 +651,7 @@ impl PythonScopeExtractionParser {
 
     /// Try to extract comprehension name from parent assignment (e.g., result = [x for x in items])
     fn extract_comprehension_name(&self, node: SyntaxNode, content: &str) -> Option<String> {
-        let parent = node.parent()?;
+        let parent = crate::scope_extraction::parents::parent_of(node)?;
         if parent.kind() == "assignment" {
             let left = parent.child_by_field_name("left")?;
             if left.kind() == "identifier" {
@@ -1156,7 +1158,7 @@ impl PythonScopeExtractionParser {
         // Handle plain identifiers — sauf l'attribut d'un `a.b`, que
         // `handle_attribute` relève avec son qualificatif : relevé une seconde
         // fois sans lui, il se résolvait au premier homonyme venu.
-        let attribut = node.parent().is_some_and(|p| {
+        let attribut = crate::scope_extraction::parents::parent_of(node).is_some_and(|p| {
             p.kind() == "attribute" && p.child_by_field_name("attribute").is_some_and(|a| a.id() == node.id())
         });
         if node.kind() == "identifier" && !attribut && !self.is_definition_identifier(node) {
@@ -1269,7 +1271,7 @@ impl PythonScopeExtractionParser {
     /// Check if an identifier node is a definition (not a reference)
 
     fn is_definition_identifier(&self, node: SyntaxNode) -> bool {
-        let parent = match node.parent() {
+        let parent = match crate::scope_extraction::parents::parent_of(node) {
             Some(p) => p,
             None => return false,
         };
@@ -1317,7 +1319,7 @@ impl PythonScopeExtractionParser {
             if c.id() == ancestor.id() {
                 return true;
             }
-            current = c.parent();
+            current = crate::scope_extraction::parents::parent_of(c);
         }
         false
     }
@@ -1788,16 +1790,16 @@ impl PythonScopeExtractionParser {
     /// Check if node is inside a class definition
 
     fn is_inside_class(&self, node: SyntaxNode) -> bool {
-        let mut current = node.parent();
+        let mut current = crate::scope_extraction::parents::parent_of(node);
         while let Some(c) = current {
             if c.kind() == "block" {
-                if let Some(p) = c.parent() {
+                if let Some(p) = crate::scope_extraction::parents::parent_of(c) {
                     if p.kind() == "class_definition" {
                         return true;
                     }
                 }
             }
-            current = c.parent();
+            current = crate::scope_extraction::parents::parent_of(c);
         }
         false
     }
