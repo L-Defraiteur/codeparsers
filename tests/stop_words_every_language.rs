@@ -46,7 +46,7 @@ fn cases() -> Vec<(&'static str, &'static str, &'static str, &'static str, Vec<&
             "Go",
             "lib.go",
             "start",
-            "package m\ntype Symbol struct{ v int }\nfunc of(x int) int { return x }\nfunc function(x int) int { return x }\nfunc start() int { s := Symbol{}; return of(1) + function(2) + s.v }\n",
+            "package m\ntype Symbol int\nfunc of(x int) int { return x }\nfunc function(x int) int { return x }\nfunc start() int { return of(1) + function(2) + int(Symbol(3)) }\n",
             vec!["of", "function", "Symbol"],
             vec!["return", "func"],
         ),
