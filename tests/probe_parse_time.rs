@@ -44,3 +44,33 @@ fn the_time_of_the_analysis_of_a_tree() {
     let scopes: usize = a.files.values().map(|f| f.scopes.len()).sum();
     println!("PROBE {dir} : files {} ; scopes {scopes} ; parse {} ms", a.files.len(), t.elapsed().as_millis());
 }
+
+/// `PROBE_DIR=<dir>`: each file parsed alone, the ten slowest printed (milliseconds, bytes, path).
+#[test]
+#[ignore]
+fn the_slowest_files_of_a_tree() {
+    let dir = std::env::var("PROBE_DIR").expect("PROBE_DIR");
+    let mut v = Vec::new();
+    files(std::path::Path::new(&dir), &mut v);
+    let mut times: Vec<(u128, usize, String)> = Vec::new();
+    for p in &v {
+        let Ok(c) = std::fs::read_to_string(p) else { continue };
+        let path = p.display().to_string();
+        let len = c.len();
+        let t = Instant::now();
+        ProjectParser::new(ProjectParserOptions { verbose: false }).parse_project(ParseProjectOptions {
+            root: dir.clone(),
+            files: vec![path.clone()],
+            content_map: Some(HashMap::from([(path.clone(), c)])),
+            resolve_relationships: Some(false),
+            resolver_options: None,
+        });
+        let ms = t.elapsed().as_millis();
+        eprintln!("PROBE-FILE {ms} ms {len} B {path}");
+        times.push((ms, len, path));
+    }
+    times.sort_by(|a, b| b.0.cmp(&a.0));
+    for (ms, len, path) in times.into_iter().take(10) {
+        println!("PROBE-SLOW {ms} ms {len} B {path}");
+    }
+}
