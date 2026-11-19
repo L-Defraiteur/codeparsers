@@ -2264,6 +2264,21 @@ impl BaseScopeExtractionParser {
             self.collect_pattern_bindings(motif, content, symbols);
         }
 
+        // Les variables du C et du C++ : le nom d'un déclarateur (`auto total = …`, `int count;`, `for (auto& item : …)`,
+        // à travers `*`, `&` et `[]`). Sans elles, une locale passait pour une référence et se reliait à un scope
+        // homonyme de son fichier (79 arêtes vers `namespace function` sur le moteur, 19 novembre 2026).
+        if matches!(kind, "init_declarator" | "declaration" | "for_range_loop") {
+            let mut cursor = current.walk();
+            for declarator in current.children_by_field_name("declarator", &mut cursor) {
+                if let Some(name) = c_declarator_name(declarator) {
+                    let text = self.get_node_text(Some(name), content);
+                    if !text.is_empty() {
+                        symbols.insert(local_binding(&text));
+                    }
+                }
+            }
+        }
+
         let mut cursor = current.walk();
         for child in current.children(&mut cursor) {
             self.collect_local_symbols_visit(child, content, symbols);
@@ -4937,6 +4952,22 @@ pub fn mask_strings_and_comments(noeud: SyntaxNode, content: &str) -> String {
 /// Les lignes `debut..=fin` (numérotées à partir de 1) de `texte`.
 fn lignes_de(texte: &str, debut: usize, fin: usize) -> String {
     texte.split('\n').skip(debut.saturating_sub(1)).take(fin + 1 - debut.max(1)).collect::<Vec<_>>().join("\n")
+}
+
+/// The name a C or C++ declarator declares: through `*`, `&`, `[]`, `( )` and an initializer, down to the identifier.
+/// A function declarator (a prototype) declares no variable.
+fn c_declarator_name(mut node: SyntaxNode) -> Option<SyntaxNode> {
+    loop {
+        match node.kind() {
+            "identifier" => return Some(node),
+            "pointer_declarator" | "array_declarator" | "init_declarator" => node = node.child_by_field_name("declarator")?,
+            "reference_declarator" | "parenthesized_declarator" => {
+                let mut cursor = node.walk();
+                node = node.named_children(&mut cursor).next()?;
+            }
+            _ => return None,
+        }
+    }
 }
 
 /// La clé sous laquelle une variable locale liée par un motif (`let x`,
