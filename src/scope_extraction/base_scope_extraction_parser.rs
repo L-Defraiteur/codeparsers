@@ -3070,12 +3070,13 @@ impl BaseScopeExtractionParser {
             // des commentaires et des chaînes, qui ne l'utilisent pas.
             let apostrophe = matches!(self.language, SupportedLanguage::Typescript | SupportedLanguage::Javascript);
             let code: &str = code_du_scope.get_or_insert_with(|| without_comments_and_strings(&scope.content, apostrophe));
-            let pattern = format!(r"\b{}\b", regex::escape(symbol_name));
-            if let Ok(re) = regex::Regex::new(&pattern) {
-                if let Some(m) = re.find(code) {
-                    let before_match = &code[..m.start()];
+            // `\bname\b` without a regular expression: one was compiled per scope and per import (23 % of the
+            // analysis of rag3weaver/src, 19 November 2026).
+            {
+                if let Some(start) = find_whole_word(code, symbol_name) {
+                    let before_match = &code[..start];
                     let line_offset = before_match.matches('\n').count();
-                    let col = m.start() - before_match.rfind('\n').map_or(0, |i| i + 1);
+                    let col = start - before_match.rfind('\n').map_or(0, |i| i + 1);
 
                     scope.identifier_references.push(IdentifierReference {
                         usage: Some(crate::scope_extraction::types::UsageKind::Other),
@@ -5229,3 +5230,24 @@ fn est_un_require(valeur: SyntaxNode, content: &str) -> bool {
         args.len() == 1 && args[0].kind() == "string"
     })
 }
+
+/// A character of a word, as `\w` of a regular expression for code: a letter or a digit of any script, or `_`.
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// The first occurrence of `word` in `text` that is a whole word, as `\bword\b` finds it: a boundary at each end,
+/// that is a word character on one side and not on the other (the start and the end of the text count as not word).
+pub fn find_whole_word(text: &str, word: &str) -> Option<usize> {
+    if word.is_empty() {
+        return None;
+    }
+    let first_is_word = word.chars().next().is_some_and(is_word_char);
+    let last_is_word = word.chars().next_back().is_some_and(is_word_char);
+    text.match_indices(word).map(|(i, _)| i).find(|&i| {
+        let before = text[..i].chars().next_back().is_some_and(is_word_char);
+        let after = text[i + word.len()..].chars().next().is_some_and(is_word_char);
+        before != first_is_word && after != last_is_word
+    })
+}
+
