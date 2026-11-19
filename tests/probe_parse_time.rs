@@ -17,7 +17,13 @@ fn files(d: &std::path::Path, v: &mut Vec<std::path::PathBuf>) {
         if name.starts_with('.') || name == "target" || name == "node_modules" || name == "build" {
             continue;
         }
-        if p.is_dir() {
+        // A link is not followed: `tools/rust_api/rag3db-src` points back up the tree, and following it walked the
+        // same files without end (19 November 2026).
+        let Ok(kind) = e.file_type() else { continue };
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
             files(&p, v)
         } else if p.extension().and_then(|x| x.to_str()).is_some_and(|x| ["rs", "c", "h", "cpp", "cc", "hpp", "py", "ts", "js", "go", "cs"].contains(&x)) {
             v.push(p)
