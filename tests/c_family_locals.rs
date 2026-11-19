@@ -49,16 +49,18 @@ fn a_local_variable_of_c_or_cpp_is_not_a_reference() {
 
 /// **A method called on a C++ local keeps its link by name** (19 November 2026). Recognising the local must not bring
 /// in Rust's rule of the untyped receiver (`let t = f(); t.m()` is not linked by name): on the engine it cut 577 links,
-/// each to the only declaration of its method (`auto mm = MemoryManager::Get(…); mm->getBufferManager()`).
+/// each to the only declaration of its method (`auto tableSchema = FactorizedTableSchema(); tableSchema.appendColumn(…)`).
 #[test]
 fn a_method_called_on_a_cpp_local_keeps_its_link_by_name() {
-    let source = "struct Box { int size() { return 1; } };\nBox make() { return Box(); }\nint start() {\n    auto box = make();\n    return box.size();\n}\n";
-    let refs = references("lib.cpp", "start", source);
-    let size = refs.iter().find(|r| r.identifier == "size").unwrap_or_else(|| panic!("size is a reference: {refs:?}"));
+    // The shape of the engine (aggregate_hash_table.cpp): a local bound to a construction whose type is deferred.
+    let source = "FactorizedTableSchema getTableSchemaForKeys() {\n    auto tableSchema = FactorizedTableSchema();\n    auto columnSchema = ColumnSchema(false, 0, 8);\n    tableSchema.appendColumn(std::move(columnSchema));\n    return tableSchema;\n}\n";
+    let refs = references("lib.cpp", "getTableSchemaForKeys", source);
+    let append = refs.iter().find(|r| r.identifier == "appendColumn").unwrap_or_else(|| panic!("appendColumn is a reference: {refs:?}"));
+    assert!(append.qualifier_deferred.is_some(), "the shape of the engine: the receiver's type is deferred ({append:?})");
     assert!(
-        !size.untyped_receiver && !size.receiver_type_unread,
+        !append.untyped_receiver && !append.receiver_type_unread,
         "the call on the local keeps its link by name (untyped_receiver {}, receiver_type_unread {})",
-        size.untyped_receiver,
-        size.receiver_type_unread
+        append.untyped_receiver,
+        append.receiver_type_unread
     );
 }
