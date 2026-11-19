@@ -29,24 +29,8 @@ use std::collections::HashSet;
 
 pub type SyntaxNode = tree_sitter::Node<'static>;
 
-pub const IDENTIFIER_STOP_WORDS: &[&str] = &[
-    "if", "for", "while", "return",
-    "const", "let", "var", "function",
-    "class", "extends", "implements", "import",
-    "from", "export", "default", "new",
-    "this", "super", "await", "async",
-    "switch", "case", "break", "continue",
-    "try", "catch", "finally", "throw",
-    "true", "false", "null", "undefined",
-    "typeof", "instanceof", "in", "of",
-];
+/// The stop words and the built-in names of every language live in `data/stop_words/` (`standard`).
 
-pub const BUILTIN_IDENTIFIERS: &[&str] = &[
-    "Number", "String", "Boolean", "Object",
-    "Array", "Map", "Set", "Promise",
-    "Date", "Error", "console", "Math",
-    "JSON", "RegExp", "Symbol", "isNaN",
-];
 
 /// Configuration for AST node type mappings.
 /// Each language parser should override this with language-specific node types.
@@ -207,18 +191,10 @@ impl BaseScopeExtractionParser {
             SupportedLanguage::Typescript | SupportedLanguage::Javascript => TYPESCRIPT_NODE_TYPES.clone(),
             _ => NodeTypeConfig::default(),
         };
-        let stop_words = match language {
-            SupportedLanguage::Typescript | SupportedLanguage::Javascript => {
-                IDENTIFIER_STOP_WORDS.iter().map(|s| s.to_string()).collect()
-            }
-            _ => HashSet::new(),
-        };
-        let builtin_identifiers = match language {
-            SupportedLanguage::Typescript | SupportedLanguage::Javascript => {
-                BUILTIN_IDENTIFIERS.iter().map(|s| s.to_string()).collect()
-            }
-            _ => HashSet::new(),
-        };
+        // The stop words and the built-in names of the language, from its data (`standard`): one source for every
+        // language, no list copied per grammar.
+        let stop_words = crate::scope_extraction::standard::stop_words_of(&language).into_iter().collect();
+        let builtin_identifiers = crate::scope_extraction::standard::builtins_of(&language).into_iter().collect();
         Self {
             parser: serde_json::Value::Null,
             language,

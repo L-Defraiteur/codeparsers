@@ -20,57 +20,7 @@ use crate::scope_extraction::types::ScopeInfo;
 const CSHARP_DOC_PREFIXES: &[&str] = &["///"];
 use crate::scope_extraction::types::ScopeInfoType;
 
-pub const CSHARP_STOP_WORDS: &[&str] = &[
-    "if", "for", "while", "return",
-    "const", "let", "var", "function",
-    "class", "extends", "implements", "import",
-    "from", "export", "default", "new",
-    "this", "super", "await", "async",
-    "switch", "case", "break", "continue",
-    "try", "catch", "finally", "throw",
-    "true", "false", "null", "undefined",
-    "typeof", "instanceof", "in", "of",
-    "namespace", "using", "class", "struct",
-    "record", "interface", "enum", "public",
-    "private", "protected", "internal", "static",
-    "readonly", "const", "virtual", "override",
-    "abstract", "sealed", "partial", "async",
-    "await", "new", "this", "base",
-    "null", "true", "false", "void",
-    "var", "dynamic", "get", "set",
-    "init", "value", "where", "when",
-    "is", "as", "in", "out",
-    "ref", "if", "else", "switch",
-    "case", "default", "for", "foreach",
-    "while", "do", "break", "continue",
-    "return", "throw", "try", "catch",
-    "finally", "lock", "using", "yield",
-    "params", "typeof", "sizeof", "nameof",
-    "checked", "unchecked", "fixed", "unsafe",
-    "stackalloc",
-];
 
-pub const CSHARP_BUILTIN_IDENTIFIERS: &[&str] = &[
-    "Number", "String", "Boolean", "Object",
-    "Array", "Map", "Set", "Promise",
-    "Date", "Error", "console", "Math",
-    "JSON", "RegExp", "Symbol", "isNaN",
-    "object", "string", "bool", "byte",
-    "sbyte", "char", "decimal", "double",
-    "float", "int", "uint", "long",
-    "ulong", "short", "ushort", "nint",
-    "nuint", "String", "Object", "Boolean",
-    "Int32", "Int64", "Double", "Decimal",
-    "DateTime", "TimeSpan", "Guid", "Type",
-    "Enum", "Array", "List", "Dictionary",
-    "HashSet", "Queue", "Stack", "LinkedList",
-    "IEnumerable", "ICollection", "IList", "IDictionary",
-    "ISet", "IQueryable", "IOrderedEnumerable", "IGrouping",
-    "Task", "ValueTask", "CancellationToken", "CancellationTokenSource",
-    "IDisposable", "IAsyncDisposable", "IComparable", "IEquatable",
-    "ICloneable", "Nullable", "Console", "Debug",
-    "Trace", "Enumerable", "Queryable",
-];
 
 lazy_static::lazy_static! {
     pub static ref CSHARP_NODE_TYPES: NodeTypeConfig = NodeTypeConfig {
@@ -122,8 +72,6 @@ impl CSharpScopeExtractionParser {
     pub fn new() -> Self {
         let mut base = BaseScopeExtractionParser::new(SupportedLanguage::Csharp);
         base.node_types = CSHARP_NODE_TYPES.clone();
-        base.stop_words = CSHARP_STOP_WORDS.iter().map(|s| s.to_string()).collect();
-        base.builtin_identifiers = CSHARP_BUILTIN_IDENTIFIERS.iter().map(|s| s.to_string()).collect();
         Self { base }
     }
 

@@ -24,19 +24,6 @@ use std::collections::HashSet;
 
 /// The C stop words now live in `data/stop_words/c.toml` (`standard::stop_words_of`).
 
-pub const C_BUILTIN_IDENTIFIERS: &[&str] = &[
-    "printf", "scanf", "malloc", "free",
-    "calloc", "realloc", "strlen", "strcpy",
-    "strcat", "strcmp", "memcpy", "memset",
-    "fopen", "fclose", "fread", "fwrite",
-    "fprintf", "fscanf", "exit", "abort",
-    "atoi", "atof", "rand", "srand",
-    "NULL", "EOF", "stdin", "stdout",
-    "stderr", "size_t", "ptrdiff_t", "intptr_t",
-    "uintptr_t", "int8_t", "int16_t", "int32_t",
-    "int64_t", "uint8_t", "uint16_t", "uint32_t",
-    "uint64_t", "bool", "true", "false",
-];
 
 lazy_static::lazy_static! {
     pub static ref C_NODE_TYPES: NodeTypeConfig = NodeTypeConfig {
@@ -88,10 +75,8 @@ impl CScopeExtractionParser {
     pub fn new() -> Self {
         let mut base = BaseScopeExtractionParser::new(SupportedLanguage::C);
         base.node_types = C_NODE_TYPES.clone();
-        // The words the C grammar reserves (`data/stop_words/c.toml`): not the JavaScript list it used to copy
-        // (a C function named `from` or `of` is a reference, 18 November 2026).
-        base.stop_words = crate::scope_extraction::standard::stop_words_of(&SupportedLanguage::C).unwrap_or_default().into_iter().collect();
-        base.builtin_identifiers = C_BUILTIN_IDENTIFIERS.iter().map(|s| s.to_string()).collect();
+        // The words the C grammar reserves and the names of its standard library (`data/stop_words/c.toml`, read by
+        // the base).
         Self { base }
     }
 

@@ -1,7 +1,6 @@
 use crate::css::css_parser::SyntaxNode;
 use crate::scope_extraction::base_scope_extraction_parser::BaseScopeExtractionParser;
 use crate::scope_extraction::base_scope_extraction_parser::NodeTypeConfig;
-use crate::scope_extraction::c_scope_extraction_parser::C_BUILTIN_IDENTIFIERS;
 use crate::parallel::parser_worker::SupportedLanguage;
 use crate::scope_extraction::types::IdentifierReference;
 use crate::scope_extraction::types::ClassMemberInfo;
@@ -24,57 +23,7 @@ use crate::scope_extraction::types::EnumMemberInfo;
 const CPP_DOC_PREFIXES: &[&str] = &["///", "//!", "//"];
 use std::collections::HashSet;
 
-pub const CPP_STOP_WORDS: &[&str] = &[
-    "if", "for", "while", "return",
-    "const", "let", "var", "function",
-    "class", "extends", "implements", "import",
-    "from", "export", "default", "new",
-    "this", "super", "await", "async",
-    "switch", "case", "break", "continue",
-    "try", "catch", "finally", "throw",
-    "true", "false", "null", "undefined",
-    "typeof", "instanceof", "in", "of",
-    "auto", "break", "case", "char",
-    "const", "continue", "default", "do",
-    "double", "else", "enum", "extern",
-    "float", "for", "goto", "if",
-    "inline", "int", "long", "register",
-    "restrict", "return", "short", "signed",
-    "sizeof", "static", "struct", "switch",
-    "typedef", "union", "unsigned", "void",
-    "volatile", "while", "_Bool", "_Complex",
-    "_Imaginary", "class", "namespace", "template",
-    "typename", "public", "private", "protected",
-    "virtual", "override", "final", "explicit",
-    "inline", "constexpr", "consteval", "mutable",
-    "friend", "operator", "new", "delete",
-    "this", "nullptr", "try", "catch",
-    "throw", "noexcept", "using", "decltype",
-    "auto", "static_cast", "dynamic_cast", "const_cast",
-    "reinterpret_cast", "true", "false", "bool",
-    "wchar_t", "char16_t", "char32_t",
-];
 
-pub const CPP_BUILTIN_IDENTIFIERS: &[&str] = &[
-    "printf", "scanf", "malloc", "free",
-    "calloc", "realloc", "strlen", "strcpy",
-    "strcat", "strcmp", "memcpy", "memset",
-    "fopen", "fclose", "fread", "fwrite",
-    "fprintf", "fscanf", "exit", "abort",
-    "atoi", "atof", "rand", "srand",
-    "NULL", "EOF", "stdin", "stdout",
-    "stderr", "size_t", "ptrdiff_t", "intptr_t",
-    "uintptr_t", "int8_t", "int16_t", "int32_t",
-    "int64_t", "uint8_t", "uint16_t", "uint32_t",
-    "uint64_t", "bool", "true", "false",
-    "std", "cout", "cin", "cerr",
-    "endl", "string", "vector", "map",
-    "set", "unordered_map", "unordered_set", "list",
-    "deque", "array", "pair", "tuple",
-    "optional", "variant", "any", "shared_ptr",
-    "unique_ptr", "weak_ptr", "make_shared", "make_unique",
-    "move", "forward",
-];
 
 lazy_static::lazy_static! {
     pub static ref CPP_NODE_TYPES: NodeTypeConfig = NodeTypeConfig {
@@ -126,8 +75,6 @@ impl CppScopeExtractionParser {
     pub fn new() -> Self {
         let mut base = BaseScopeExtractionParser::new(SupportedLanguage::Cpp);
         base.node_types = CPP_NODE_TYPES.clone();
-        base.stop_words = CPP_STOP_WORDS.iter().map(|s| s.to_string()).collect();
-        base.builtin_identifiers = CPP_BUILTIN_IDENTIFIERS.iter().map(|s| s.to_string()).collect();
         Self { base }
     }
 

@@ -23,42 +23,7 @@ use crate::scope_extraction::types::ScopeInfoType;
 const GO_DOC_PREFIXES: &[&str] = &["//"];
 use std::collections::HashSet;
 
-pub const GO_STOP_WORDS: &[&str] = &[
-    "if", "for", "while", "return",
-    "const", "let", "var", "function",
-    "class", "extends", "implements", "import",
-    "from", "export", "default", "new",
-    "this", "super", "await", "async",
-    "switch", "case", "break", "continue",
-    "try", "catch", "finally", "throw",
-    "true", "false", "null", "undefined",
-    "typeof", "instanceof", "in", "of",
-    "package", "import", "func", "var",
-    "const", "type", "struct", "interface",
-    "map", "chan", "range", "go",
-    "select", "case", "default", "defer",
-    "if", "else", "switch", "for",
-    "break", "continue", "return", "goto",
-    "fallthrough", "nil", "true", "false",
-    "iota",
-];
 
-pub const GO_BUILTIN_IDENTIFIERS: &[&str] = &[
-    "Number", "String", "Boolean", "Object",
-    "Array", "Map", "Set", "Promise",
-    "Date", "Error", "console", "Math",
-    "JSON", "RegExp", "Symbol", "isNaN",
-    "append", "cap", "close", "complex",
-    "copy", "delete", "imag", "len",
-    "make", "new", "panic", "print",
-    "println", "real", "recover", "bool",
-    "byte", "complex64", "complex128", "error",
-    "float32", "float64", "int", "int8",
-    "int16", "int32", "int64", "rune",
-    "string", "uint", "uint8", "uint16",
-    "uint32", "uint64", "uintptr", "any",
-    "comparable",
-];
 
 lazy_static::lazy_static! {
     pub static ref GO_NODE_TYPES: NodeTypeConfig = NodeTypeConfig {
@@ -118,8 +83,6 @@ impl GoScopeExtractionParser {
     pub fn new() -> Self {
         let mut base = BaseScopeExtractionParser::new(SupportedLanguage::Go);
         base.node_types = GO_NODE_TYPES.clone();
-        base.stop_words = GO_STOP_WORDS.iter().map(|s| s.to_string()).collect();
-        base.builtin_identifiers = GO_BUILTIN_IDENTIFIERS.iter().map(|s| s.to_string()).collect();
         Self { base }
     }
 

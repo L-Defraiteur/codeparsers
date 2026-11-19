@@ -1,8 +1,8 @@
-# Les mots vides de c (codeparsers, `scope_extraction::standard`).
+# Les mots vides et les noms intégrés de c (codeparsers, `scope_extraction::standard`).
 # Généré par data/stop_words/generate.py — ne pas éditer à la main : relancer le générateur.
-# Un identifiant de cette liste n'est pas une référence.
+# Un mot de `names` n'est jamais une référence ; un nom de `builtins` n'est jamais un nom du projet.
 language = "c"
-source = "la grammaire tree-sitter-c-0.24.2 : ses jetons alphabétiques anonymes, primitive_type, true, false et null"
+source = "la grammaire tree-sitter-c-0.24.2 : ses jetons alphabétiques anonymes, primitive_type, true, false, null"
 names = [
     "FALSE",
     "NULL",
@@ -107,4 +107,51 @@ names = [
     "void",
     "volatile",
     "while",
+]
+builtins_source = "liste tenue à la main dans data/stop_words/generate.py"
+builtins = [
+    "EOF",
+    "NULL",
+    "abort",
+    "atof",
+    "atoi",
+    "bool",
+    "calloc",
+    "exit",
+    "false",
+    "fclose",
+    "fopen",
+    "fprintf",
+    "fread",
+    "free",
+    "fscanf",
+    "fwrite",
+    "int16_t",
+    "int32_t",
+    "int64_t",
+    "int8_t",
+    "intptr_t",
+    "malloc",
+    "memcpy",
+    "memset",
+    "printf",
+    "ptrdiff_t",
+    "rand",
+    "realloc",
+    "scanf",
+    "size_t",
+    "srand",
+    "stderr",
+    "stdin",
+    "stdout",
+    "strcat",
+    "strcmp",
+    "strcpy",
+    "strlen",
+    "true",
+    "uint16_t",
+    "uint32_t",
+    "uint64_t",
+    "uint8_t",
+    "uintptr_t",
 ]

@@ -26,27 +26,6 @@ use std::collections::HashSet;
 /// `new` n'y est pas : en Rust c'est un nom de fonction, le constructeur le plus courant (`T::new()`).
 /// The Rust stop words now live in `data/stop_words/rust.toml` (`standard::stop_words_of`).
 
-pub const RUST_BUILTIN_IDENTIFIERS: &[&str] = &[
-    "Self", "Option", "Result", "Vec",
-    "String", "Box", "Rc", "Arc",
-    "HashMap", "HashSet", "BTreeMap", "BTreeSet",
-    "VecDeque", "Cell", "RefCell", "Mutex",
-    "RwLock", "Cow", "Clone", "Copy",
-    "Debug", "Default", "Display", "Eq",
-    "Hash", "Ord", "PartialEq", "PartialOrd",
-    "Send", "Sync", "Sized", "Iterator",
-    "IntoIterator", "FromIterator", "Extend", "From",
-    "Into", "TryFrom", "TryInto", "AsRef",
-    "AsMut", "Drop", "Deref", "DerefMut",
-    "Fn", "FnMut", "FnOnce", "println",
-    "print", "eprintln", "eprint", "format",
-    "panic", "assert", "vec", "dbg",
-    "todo", "unimplemented", "unreachable", "bool",
-    "char", "str", "i8", "i16",
-    "i32", "i64", "i128", "isize",
-    "u8", "u16", "u32", "u64",
-    "u128", "usize", "f32", "f64",
-];
 
 lazy_static::lazy_static! {
     pub static ref RUST_NODE_TYPES: NodeTypeConfig = NodeTypeConfig {
@@ -108,10 +87,8 @@ impl RustScopeExtractionParser {
     pub fn new() -> Self {
         let mut base = BaseScopeExtractionParser::new(SupportedLanguage::Rust);
         base.node_types = RUST_NODE_TYPES.clone();
-        // The Rust keywords and the prelude's variants, from the std doc (`data/stop_words/rust.toml`):
-        // not the JavaScript list it used to copy (`Settings::default()` is a reference, 16 November 2026).
-        base.stop_words = crate::scope_extraction::standard::stop_words_of(&SupportedLanguage::Rust).unwrap_or_default().into_iter().collect();
-        base.builtin_identifiers = RUST_BUILTIN_IDENTIFIERS.iter().map(|s| s.to_string()).collect();
+        // The Rust keywords and the prelude's variants, from the std doc, and its built-in names
+        // (`data/stop_words/rust.toml`, read by the base).
         Self { base }
     }
 
