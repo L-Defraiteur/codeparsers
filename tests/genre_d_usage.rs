@@ -263,7 +263,8 @@ fn une_zone_hors_scope_garde_ses_vraies_lignes() {
     // lue : ses références glissaient d'autant (port.rs, `use crate::search`
     // à la ligne 117 sortait à la 116).
     let chemin = "/virtual/z.rs".to_string();
-    let source = "fn a() {}\n\n\nuse std::sync::Arc;\nfn b() {}\n";
+    // Un nom du projet, pas un nom intégré : `Arc` n'est plus une référence (tests/builtins_in_file_scopes.rs).
+    let source = "fn a() {}\n\n\nuse crate::outils::Outil;\nfn b() {}\n";
     let analyse = ProjectParser::new(ProjectParserOptions { verbose: false }).parse_project(ParseProjectOptions {
         root: "/virtual".to_string(),
         files: vec![chemin.clone()],
@@ -273,8 +274,8 @@ fn une_zone_hors_scope_garde_ses_vraies_lignes() {
     });
     let refs: Vec<_> = analyse.files[&chemin].scopes.iter()
         .flat_map(|s| s.identifier_references.iter())
-        .filter(|r| r.identifier == "Arc")
+        .filter(|r| r.identifier == "Outil")
         .map(|r| r.line)
         .collect();
-    assert_eq!(refs, vec![4], "`use std::sync::Arc;` est à la ligne 4");
+    assert_eq!(refs, vec![4], "`use crate::outils::Outil;` est à la ligne 4");
 }

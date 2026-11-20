@@ -3126,6 +3126,11 @@ impl BaseScopeExtractionParser {
             if suivis.contains(symbol_name) {
                 continue;
             }
+            // Un mot vide ou un nom intégré n'est pas une référence (tests/builtins_in_file_scopes.rs) : le suivi des
+            // imports ne le remet pas après que la relève l'a écarté (`use std::sync::Arc;`).
+            if self.stop_words.contains(symbol_name) || self.builtin_identifiers.contains(symbol_name) {
+                continue;
+            }
 
             // Check if symbol appears in scope content as a whole word — hors
             // des commentaires et des chaînes, qui ne l'utilisent pas.
