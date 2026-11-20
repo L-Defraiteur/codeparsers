@@ -2264,6 +2264,38 @@ impl BaseScopeExtractionParser {
             self.collect_pattern_bindings(motif, content, symbols);
         }
 
+        // **Les liaisons de Python** (20 novembre 2026, le premier niveau d'un module) : la cible d'un `for` ou d'une
+        // compréhension, celles d'un déballage (`e2, t2 = …`), l'alias d'un `with … as` ou d'un `except … as`, et le
+        // nom de module d'un import (`jevk5` dans `from jevk5.gguf import X`, `os` dans `import os.path`). Sans elles,
+        // le scope de fichier les reliait par le nom à un homonyme d'un autre fichier (tests/python_top_level.rs).
+        if matches!(self.language, SupportedLanguage::Python) {
+            let liaison = match kind {
+                "for_statement" | "for_in_clause" => current.child_by_field_name("left"),
+                "assignment" | "augmented_assignment" => current
+                    .child_by_field_name("left")
+                    .filter(|l| matches!(l.kind(), "pattern_list" | "tuple_pattern" | "list_pattern" | "list_splat_pattern")),
+                "as_pattern" => current.child_by_field_name("alias"),
+                "import_from_statement" => current.child_by_field_name("module_name"),
+                _ => None,
+            };
+            if let Some(l) = liaison {
+                self.collect_pattern_bindings(l, content, symbols);
+            }
+            if kind == "import_statement" {
+                let mut cursor = current.walk();
+                for nom in current.children_by_field_name("name", &mut cursor) {
+                    // `import os.path` lie `os` ; `import numpy as np` lie `np`.
+                    let lie = if nom.kind() == "aliased_import" { nom.child_by_field_name("alias") } else { Some(nom) };
+                    if let Some(lie) = lie {
+                        let tete = if lie.kind() == "dotted_name" { lie.named_child(0) } else { Some(lie) };
+                        if let Some(tete) = tete {
+                            self.collect_pattern_bindings(tete, content, symbols);
+                        }
+                    }
+                }
+            }
+        }
+
         // Les variables du C et du C++ : le nom d'un déclarateur (`auto total = …`, `int count;`, `for (auto& item : …)`,
         // à travers `*`, `&` et `[]`). Sans elles, une locale passait pour une référence et se reliait à un scope
         // homonyme de son fichier (79 arêtes vers `namespace function` sur le moteur, 19 novembre 2026).
@@ -3749,7 +3781,10 @@ impl BaseScopeExtractionParser {
 
         let variables = self.extract_top_level_variables(content, start_line as f64);
 
-        let reference_exclusions = HashSet::new();
+        // Python : les liaisons du premier niveau (boucles, déballages, alias, modules importés) ne sont pas des
+        // références du scope de fichier (tests/python_top_level.rs).
+        let reference_exclusions =
+            if matches!(self.language, SupportedLanguage::Python) { self.python_top_level_bindings(references.0) } else { HashSet::new() };
         let identifier_references = self.extract_identifier_references_from_text(references.0, reference_exclusions, references.1 as f64);
         let import_references = self.resolve_imports_for_scope(&identifier_references, file_imports);
 
@@ -3989,6 +4024,23 @@ impl BaseScopeExtractionParser {
     }
 
     /// Extract identifier references from text (simplified version)
+
+    /// **The names a Python top-level stretch binds** (20 November 2026): parsed again with tree-sitter, its loop and
+    /// comprehension targets, unpacking targets, `as` aliases and imported module names (`collect_local_symbols`), as
+    /// plain names — the exclusions of its file scope.
+    fn python_top_level_bindings(&self, texte: &str) -> HashSet<String> {
+        let mut parser = tree_sitter::Parser::new();
+        if parser.set_language(&tree_sitter_python::LANGUAGE.into()).is_err() {
+            return HashSet::new();
+        }
+        let Some(tree) = parser.parse(texte, None) else { return HashSet::new() };
+        // SAFETY: `tree` outlives every node read here; none escapes this function.
+        let root: SyntaxNode = unsafe { std::mem::transmute(tree.root_node()) };
+        let _parents = crate::scope_extraction::parents::index(root);
+        let mut liaisons = HashSet::new();
+        self.collect_local_symbols_visit(root, texte, &mut liaisons);
+        liaisons.into_iter().filter_map(|n| n.strip_prefix(LOCAL_BINDING_PREFIX).map(str::to_string)).collect()
+    }
 
     pub fn extract_identifier_references_from_text(&self, content: &str, exclusions: HashSet<String>, base_line: f64) -> Vec<IdentifierReference> {
         let mut references = Vec::new();
@@ -5018,8 +5070,11 @@ pub fn c_local(nom: &str) -> String {
 /// nu, pour ne pas hériter de la règle qui écarte aussi `x.membre` quand `x`
 /// est exclu (paramètres, définitions locales).
 pub fn local_binding(nom: &str) -> String {
-    format!("\u{1}let:{nom}")
+    format!("{LOCAL_BINDING_PREFIX}{nom}")
 }
+
+/// The prefix of a [`local_binding`] key.
+const LOCAL_BINDING_PREFIX: &str = "\u{1}let:";
 
 /// **Le texte à donner à tree-sitter pour du C/C++, macros d'attribut
 /// masquées** : dans `class RAG3DB_API Foo {` (ou `struct X_EXPORT Foo :
