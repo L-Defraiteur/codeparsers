@@ -37,8 +37,97 @@ impl Coverage {
 /// La catégorie de chaque nœud nommé de `content`, analysé comme `path` (la langue se lit à son extension) ;
 /// `None` pour une langue que codeparsers ne lit pas. Avec, pour les identifiants, le texte et la position
 /// `(ligne à partir de 1, colonne en octets)` de chacun.
-pub fn categories(_path: &str, _content: &str) -> Option<Vec<(String, String, (usize, usize), Category)>> {
-    None
+pub fn categories(path: &str, content: &str) -> Option<Vec<(String, String, (usize, usize), Category)>> {
+    use crate::scope_extraction::types::SupportedLanguage as L;
+    let langue = crate::parallel::project_parser::detect_language_from_path(path)?;
+    let grammaire: tree_sitter::Language = match langue {
+        L::Typescript | L::Javascript => {
+            if crate::scope_extraction::base_scope_extraction_parser::uses_tsx_grammar(path) {
+                tree_sitter_typescript::LANGUAGE_TSX.into()
+            } else {
+                tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
+            }
+        }
+        L::Python => tree_sitter_python::LANGUAGE.into(),
+        L::Rust => tree_sitter_rust::LANGUAGE.into(),
+        L::C => tree_sitter_c::LANGUAGE.into(),
+        L::Cpp => tree_sitter_cpp::LANGUAGE.into(),
+        L::Csharp => tree_sitter_c_sharp::LANGUAGE.into(),
+        L::Go => tree_sitter_go::LANGUAGE.into(),
+    };
+    // Ce que codeparsers en fait : ses références, par position.
+    let chemin = format!("/couverture/{}", path.trim_start_matches('/'));
+    let analyse = crate::parallel::project_parser::ProjectParser::new(crate::parallel::project_parser::ProjectParserOptions { verbose: false })
+        .parse_project(crate::parallel::project_parser::ParseProjectOptions {
+            root: "/couverture".to_string(),
+            files: vec![chemin.clone()],
+            content_map: Some(std::collections::HashMap::from([(chemin, content.to_string())])),
+            resolve_relationships: Some(false),
+            resolver_options: None,
+        });
+    let mut references: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+    fn relever(s: &crate::scope_extraction::types::ScopeInfo, r: &mut std::collections::HashSet<(usize, usize)>) {
+        for x in &s.identifier_references {
+            if let Some(col) = x.column {
+                r.insert((x.line, col));
+            }
+        }
+        for c in &s.children {
+            relever(c, r);
+        }
+    }
+    for f in analyse.files.values() {
+        for s in &f.scopes {
+            relever(s, &mut references);
+        }
+    }
+    let mut parser = tree_sitter::Parser::new();
+    parser.set_language(&grammaire).ok()?;
+    let arbre = parser.parse(content, None)?;
+    let mut sortie = Vec::new();
+    let mut curseur = arbre.walk();
+    let mut fini = false;
+    while !fini {
+        let n = curseur.node();
+        if n.is_named() {
+            let sorte = n.kind();
+            let texte = content.get(n.start_byte()..n.end_byte()).unwrap_or("").to_string();
+            let pos = (n.start_position().row + 1, n.start_position().column);
+            let est_un_nom = sorte == "identifier" || sorte.ends_with("_identifier");
+            let categorie = if est_un_nom {
+                let nom_d_un_scope = n.parent().and_then(|p| p.child_by_field_name("name")).is_some_and(|x| x.id() == n.id());
+                if references.contains(&pos) {
+                    Category::Reference
+                } else if nom_d_un_scope {
+                    Category::Declaration
+                } else {
+                    Category::Excluded
+                }
+            } else if sorte.contains("comment")
+                || sorte.contains("string")
+                || sorte.contains("literal")
+                || sorte.contains("number")
+                || sorte.contains("integer")
+                || sorte.contains("float")
+                || matches!(sorte, "true" | "false" | "null" | "none" | "nil" | "char" | "escape_sequence")
+            {
+                Category::Neutral
+            } else {
+                Category::Structure
+            };
+            sortie.push((sorte.to_string(), if est_un_nom || categorie == Category::Neutral { texte } else { String::new() }, pos, categorie));
+        }
+        if curseur.goto_first_child() {
+            continue;
+        }
+        while !curseur.goto_next_sibling() {
+            if !curseur.goto_parent() {
+                fini = true;
+                break;
+            }
+        }
+    }
+    Some(sortie)
 }
 
 /// La couverture de `content`, analysé comme `path`.
