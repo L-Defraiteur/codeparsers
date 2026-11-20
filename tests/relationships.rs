@@ -56,11 +56,6 @@ fn has_rel(rels: &[Rel], from: &str, to: &str, rel_type: RelationshipType) -> bo
     rels.iter().any(|r| r.from == from && r.to == to && r.rel_type == rel_type)
 }
 
-/// Assert that NO relationship exists between from and to (any type).
-fn no_rel(rels: &[Rel], from: &str, to: &str) -> bool {
-    !rels.iter().any(|r| r.from == from && r.to == to)
-}
-
 /// Count relationships of a given type.
 fn count_type(rels: &[Rel], rel_type: RelationshipType) -> usize {
     rels.iter().filter(|r| r.rel_type == rel_type).count()
@@ -775,7 +770,6 @@ private:
 // C function pointers in structs
 // ---------------------------------------------------------------------------
 
-#[test]
 // ===========================================================================
 // EXPLORATORY: Language-specific coverage gaps
 // ===========================================================================
