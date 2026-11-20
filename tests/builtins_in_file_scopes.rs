@@ -28,6 +28,8 @@ fn a_builtin_name_is_not_a_reference_of_top_level_code() {
         ("Python", "app.py", "from lib import charger\n\nx = charger()\nprint(len(x))\n", vec!["print", "len"], "charger"),
         ("JavaScript", "app.js", "import { charger } from './lib';\n\nconst x = charger();\nconsole.log(JSON.stringify(x));\n", vec!["console", "JSON"], "charger"),
         ("Go", "app.go", "package app\n\nvar x = charger()\nvar n = len(x)\n", vec!["len"], "charger"),
+        // Le suivi des imports ne remet pas un nom intégré que la relève a écarté.
+        ("Rust", "z.rs", "fn a() {}\n\n\nuse std::sync::Arc;\nuse crate::lib::charger;\nfn b() {}\n", vec!["Arc"], "charger"),
     ];
     let mut faux = Vec::new();
     for (langue, fichier, source, integres, du_projet) in cas {
