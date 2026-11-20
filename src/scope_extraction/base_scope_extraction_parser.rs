@@ -2810,6 +2810,39 @@ impl BaseScopeExtractionParser {
             }
         }
 
+        // **Les réexportations** (20 novembre 2026) : `export { X, A as B } from './x'`, `export * from './x'` et
+        // `export * as ns from './x'` réexportent ce que `./x` exporte (tests/reexports_python_ts.rs).
+        let export_re = cached_regex!(r#"(?m)^[ \t]*export\s+(?:type\s+)?(\{[^}]*\}|\*(?:\s+as\s+[\w$]+)?)\s+from\s+['"]([^'"]+)['"]"#);
+        for cap in export_re.captures_iter(content) {
+            let line_num = content[..cap.get(0).unwrap().start()].split('\n').count();
+            let spec = cap[1].trim();
+            let source = cap[2].to_string();
+            let local = is_local(&source);
+            if let Some(inner) = spec.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+                for entry in inner.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                    let as_parts: Vec<&str> = entry.splitn(2, " as ").collect();
+                    let symbole = as_parts[0].trim().trim_start_matches("type ").trim();
+                    let alias = as_parts.get(1).map(|a| a.trim().to_string());
+                    if !symbole.is_empty() {
+                        push_ref(&mut refs, &mut seen, ImportReference {
+                            module_path: None,
+                            source: source.clone(), imported: symbole.to_string(),
+                            alias, kind: ImportReferenceKind::Named, is_local: local, line: Some(line_num),
+                            reexport: true,
+                        });
+                    }
+                }
+            } else {
+                let alias = spec.strip_prefix('*').map(|s| s.trim()).and_then(|s| s.strip_prefix("as")).map(|s| s.trim().to_string());
+                push_ref(&mut refs, &mut seen, ImportReference {
+                    module_path: None,
+                    source: source.clone(), imported: "*".to_string(),
+                    alias, kind: ImportReferenceKind::Namespace, is_local: local, line: Some(line_num),
+                    reexport: true,
+                });
+            }
+        }
+
         // Side-effect imports: import 'source'
         let side_re = cached_regex!(r#"import\s+['"]([^'"]+)['"]"#);
         for cap in side_re.captures_iter(content) {

@@ -54,7 +54,14 @@ impl PythonScopeExtractionParser {
         let mut scopes: Vec<ScopeInfo> = Vec::new();
 
         // Extract structured imports first
-        let structured_imports = self.extract_structured_imports(content);
+        let mut structured_imports = self.extract_structured_imports(content);
+        // **Un import nommé d'un `__init__.py` est la réexportation du paquet** (la convention de Python,
+        // 20 novembre 2026) : `from .lib import Catalog` y rend `monpaquet.Catalog` (tests/reexports_python_ts.rs).
+        if file_path.rsplit('/').next() == Some("__init__.py") {
+            for i in structured_imports.iter_mut().filter(|i| i.kind == ImportReferenceKind::Named) {
+                i.reexport = true;
+            }
+        }
 
         // Extract TypeVar bounds (T = TypeVar('T', bound=SomeClass))
         let type_var_bounds = self.extract_type_var_bounds(content);
