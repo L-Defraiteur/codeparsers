@@ -69,13 +69,12 @@ impl PythonScopeExtractionParser {
         // Extract all scopes with hierarchy
         self.extract_scopes(root_node, &mut scopes, content, 0, None, &structured_imports, file_path);
 
-        // **Un `__init__.py` a ses scopes de fichier** (20 novembre 2026) : ses imports y sont les réexportations
-        // du paquet, et un scope doit les porter (tests/reexports_python_ts.rs). Les autres fichiers Python n'en ont
-        // toujours pas (ticket du code de premier niveau Python).
-        if file_path.rsplit('/').next() == Some("__init__.py") {
-            let file_scopes = self.base.extract_file_scopes(root_node, content, &scopes, file_path, &structured_imports);
-            scopes.extend(file_scopes);
-        }
+        // **Le code de premier niveau a ses scopes de fichier** (20 novembre 2026), comme en Rust, C, C++, C# et Go :
+        // un appel au chargement du module, une constante construite, le bloc `__main__` laissent leurs références
+        // (tests/python_top_level.rs) ; ceux d'un `__init__.py` portent les réexportations du paquet
+        // (tests/reexports_python_ts.rs).
+        let file_scopes = self.base.extract_file_scopes(root_node, content, &scopes, file_path, &structured_imports);
+        scopes.extend(file_scopes);
 
         // Classify scope references (link identifiers to imports/local scopes)
         let scope_index = self.classify_scope_references(&mut scopes, &structured_imports, &type_var_bounds);
