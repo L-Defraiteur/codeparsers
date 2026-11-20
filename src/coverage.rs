@@ -93,7 +93,9 @@ pub fn categories(path: &str, content: &str) -> Option<Vec<(String, String, (usi
             let sorte = n.kind();
             let texte = content.get(n.start_byte()..n.end_byte()).unwrap_or("").to_string();
             let pos = (n.start_position().row + 1, n.start_position().column);
-            let est_un_nom = sorte == "identifier" || sorte.ends_with("_identifier");
+            // Un nom est une feuille : un chemin (`scoped_identifier`, `qualified_identifier`) contient ses noms, il
+            // n'en est pas un ; il compte en structure, et ses noms un à un.
+            let est_un_nom = (sorte == "identifier" || sorte.ends_with("_identifier")) && n.named_child_count() == 0;
             let categorie = if est_un_nom {
                 let nom_d_un_scope = n.parent().and_then(|p| p.child_by_field_name("name")).is_some_and(|x| x.id() == n.id());
                 if references.contains(&pos) {
@@ -115,7 +117,8 @@ pub fn categories(path: &str, content: &str) -> Option<Vec<(String, String, (usi
             } else {
                 Category::Structure
             };
-            sortie.push((sorte.to_string(), if est_un_nom || categorie == Category::Neutral { texte } else { String::new() }, pos, categorie));
+            let garde_le_texte = est_un_nom || categorie == Category::Neutral || sorte.ends_with("identifier");
+            sortie.push((sorte.to_string(), if garde_le_texte { texte } else { String::new() }, pos, categorie));
         }
         if curseur.goto_first_child() {
             continue;
