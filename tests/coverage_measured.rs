@@ -15,6 +15,11 @@ fn each_named_node_falls_in_its_category() {
             vec![("f", 3, Category::Declaration), ("g", 4, Category::Reference), ("x", 4, Category::Excluded), ("x", 5, Category::Excluded), ("2", 5, Category::Neutral)],
         ),
         (
+            "chemin.rs",
+            "mod a { pub fn h() -> u32 { 1 } }\nfn f() -> u32 {\n    a::h()\n}\n",
+            vec![("a::h", 3, Category::Structure), ("h", 3, Category::Reference)],
+        ),
+        (
             "app.py",
             "def g():\n    return 1\n\ndef f(y):\n    x = g()\n    return x + y + len('a')\n",
             vec![("f", 4, Category::Declaration), ("g", 5, Category::Reference), ("y", 6, Category::Excluded), ("len", 6, Category::Excluded)],
