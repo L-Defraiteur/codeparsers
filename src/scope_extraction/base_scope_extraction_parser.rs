@@ -4087,7 +4087,9 @@ impl BaseScopeExtractionParser {
             for m in identifier_pattern.captures_iter(line) {
                 let identifier = m[1].to_string();
 
-                if exclusions.contains(&identifier) || self.stop_words.contains(&identifier) {
+                // Ni un mot vide ni un nom intégré du langage (`print`, `len`, `console`, `JSON`) : le premier niveau
+                // relevé par le texte les écarte comme l'arbre le fait dans une fonction (tests/builtins_in_file_scopes.rs).
+                if exclusions.contains(&identifier) || self.stop_words.contains(&identifier) || self.builtin_identifiers.contains(&identifier) {
                     continue;
                 }
                 // **A member read on the text keeps its owner** (16 November 2026): `process.platform`
