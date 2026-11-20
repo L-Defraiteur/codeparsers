@@ -44,3 +44,20 @@ fn python_and_typescript_mark_their_reexports() {
     }
     assert!(faux.is_empty(), "{faux:#?}");
 }
+
+/// **Un `__init__.py` qui ne fait que réexporter a un scope de fichier** : sans lui, la réexportation n'a pas de
+/// porteur et le rendez-vous ne la voit pas (Python ne créait aucun scope de fichier).
+#[test]
+fn an_init_py_that_only_reexports_has_a_file_scope() {
+    let path = "/virtual/monpaquet/__init__.py".to_string();
+    let a = ProjectParser::new(ProjectParserOptions { verbose: false }).parse_project(ParseProjectOptions {
+        root: "/virtual".to_string(),
+        files: vec![path.clone()],
+        content_map: Some(HashMap::from([(path, "from monpaquet.lib import Catalog\n".to_string())])),
+        resolve_relationships: Some(false),
+        resolver_options: None,
+    });
+    let scopes: Vec<(String, usize, usize)> =
+        a.files.values().flat_map(|f| f.scopes.iter().map(|s| (s.name.clone(), s.scope_start_line, s.scope_end_line))).collect();
+    assert!(scopes.iter().any(|(n, debut, fin)| n.starts_with("file_scope") && *debut <= 1 && 1 <= *fin), "un scope de fichier porte la ligne 1 : {scopes:?}");
+}
