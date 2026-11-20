@@ -4,6 +4,7 @@
 /// Produit des faits pour une politique ; ne juge rien.
 pub mod shell;
 pub mod base;
+pub mod coverage;
 pub mod c;
 pub mod cpp;
 pub mod csharp;
