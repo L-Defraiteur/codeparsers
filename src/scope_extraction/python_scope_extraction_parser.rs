@@ -19,7 +19,7 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-/// The Python stop words now live in `data/stop_words/python.toml` (`standard::stop_words_of`).
+// The Python stop words now live in `data/stop_words/python.toml` (`standard::stop_words_of`).
 
 
 pub struct PythonScopeExtractionParser {

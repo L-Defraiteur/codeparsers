@@ -22,7 +22,7 @@ use crate::scope_extraction::types::ScopeInfoType;
 const C_DOC_PREFIXES: &[&str] = &["///", "//!", "//"];
 use std::collections::HashSet;
 
-/// The C stop words now live in `data/stop_words/c.toml` (`standard::stop_words_of`).
+// The C stop words now live in `data/stop_words/c.toml` (`standard::stop_words_of`).
 
 
 lazy_static::lazy_static! {

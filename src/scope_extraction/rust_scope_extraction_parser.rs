@@ -24,7 +24,7 @@ const RUST_DOC_PREFIXES: &[&str] = &["//!", "///"];
 use std::collections::HashSet;
 
 /// `new` n'y est pas : en Rust c'est un nom de fonction, le constructeur le plus courant (`T::new()`).
-/// The Rust stop words now live in `data/stop_words/rust.toml` (`standard::stop_words_of`).
+// The Rust stop words now live in `data/stop_words/rust.toml` (`standard::stop_words_of`).
 
 
 lazy_static::lazy_static! {
