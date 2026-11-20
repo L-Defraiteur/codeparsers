@@ -38,7 +38,7 @@ impl Coverage {
 /// `None` pour une langue que codeparsers ne lit pas. Avec, pour les identifiants, le texte et la position
 /// `(ligne à partir de 1, colonne en octets)` de chacun.
 pub fn categories(path: &str, content: &str) -> Option<Vec<(String, String, (usize, usize), Category)>> {
-    use crate::scope_extraction::types::SupportedLanguage as L;
+    use crate::parallel::parser_worker::SupportedLanguage as L;
     let langue = crate::parallel::project_parser::detect_language_from_path(path)?;
     let grammaire: tree_sitter::Language = match langue {
         L::Typescript | L::Javascript => {
