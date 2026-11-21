@@ -3322,79 +3322,11 @@ impl BaseScopeExtractionParser {
             }
         }
 
-        // Second pass: Aggregate type references from child methods to parent classes
-        // Collect info from children first
-        struct TypeRefInfo {
-            target_scope: String,
-            line: usize,
-            context: String,
-        }
-
-        // Les fermetures du fichier : un appel à l'une d'elles n'est pas une
-        // référence de type, il ne remonte pas à la classe.
-        let fermetures: std::collections::HashSet<String> = scopes
-            .iter()
-            .filter(|s| s.r#type == ScopeInfoType::Lambda)
-            .map(|s| format!("{}::{}:{}-{}", s.file_path, s.name, s.scope_start_line, s.scope_end_line))
-            .collect();
-
-        // Find class scope indices
-        let class_indices: Vec<usize> = scopes.iter().enumerate()
-            .filter(|(_, s)| s.r#type == ScopeInfoType::Class)
-            .map(|(i, _)| i)
-            .collect();
-
-        for class_idx in class_indices {
-            let class_name = scopes[class_idx].name.clone();
-            let class_file_path = scopes[class_idx].file_path.clone();
-
-            // Collect type refs from child scopes
-            let mut type_references = HashMap::<String, TypeRefInfo>::new();
-            for scope in scopes.iter() {
-                if scope.parent.as_deref() == Some(&class_name) && scope.file_path == class_file_path {
-                    for r in &scope.identifier_references {
-                        // Un appel sur un receveur non typé n'est pas une
-                        // référence de type : il ne remonte pas à la classe.
-                        if r.kind == Some(IdentifierReferenceKind::LocalScope) && !r.untyped_receiver {
-                            if let Some(ts) = r.target_scope.as_ref().filter(|ts| !fermetures.contains(ts.as_str())) {
-                                type_references.entry(r.identifier.clone()).or_insert(TypeRefInfo {
-                                    target_scope: ts.clone(),
-                                    line: scope.scope_start_line,
-                                    context: scope.signature.clone(),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Add collected refs to the class scope
-            let class_scope = &mut scopes[class_idx];
-            for (type_name, ref_info) in type_references {
-                let already = class_scope.identifier_references.iter().any(|r| {
-                    r.identifier == type_name && r.kind == Some(IdentifierReferenceKind::LocalScope)
-                });
-                if !already {
-                    class_scope.identifier_references.push(IdentifierReference {
-                        usage: Some(crate::scope_extraction::types::UsageKind::Type),
-                        qualifier_type: None,
-                        qualifier_deferred: None,
-                        import_origin: None,
-                        identifier: type_name,
-                        line: ref_info.line,
-                        column: None,
-                        context: Some(ref_info.context),
-                        qualifier: None,
-                        kind: Some(IdentifierReferenceKind::LocalScope),
-                        source: None,
-                        target_scope: Some(ref_info.target_scope),
-                        is_local_import: None,
-                        untyped_receiver: false,
-                        receiver_type_unread: false,
-                    });
-                }
-            }
-        }
+        // **Nothing copied from the methods to the class** (22 November 2026, ticket of recherche
+        // `2026-11-21-usages-rend-une-classe-comme-usage-de-type-d-une-fonction`): a second pass here copied the
+        // references of the methods, as uses of type, to every class of the same name in the file — the `struct` of an
+        // `impl`, outside its span. A reference belongs to the scope that holds it; « all that a class and its methods
+        // use » is a query of rag3weaver over the span (its members, then their CONSUMES), not a fact of the parse.
     }
 
     /// Extract base type identifier from a type string (first identifier only)

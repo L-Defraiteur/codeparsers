@@ -192,7 +192,7 @@ pub fn finalize(analysis: &mut ScopeFileAnalysis, content: &str) {
     attach_import_origins(analysis);
     lire_les_types_differes(analysis);
     relever_les_verrous_par_appel(analysis);
-    au_plus_etroit(analysis);
+    au_plus_etroit(analysis, &line_starts);
     ordre_fixe(analysis);
 }
 
@@ -200,27 +200,61 @@ pub fn finalize(analysis: &mut ScopeFileAnalysis, content: &str) {
 /// conteneur — `mod` Rust, `namespace` C++, module nommé — portait aussi les
 /// références de ses membres, qui les portent déjà : `mod tests → name`
 /// parce qu'une fonction de test a un paramètre `name`. Il perd celles qui
-/// tombent dans les lignes d'un scope qu'il contient. Les fonctions gardent
+/// tombent dans un scope qu'il contient. Les fonctions gardent
 /// les références de leurs fermetures (un consommateur les replie), et les
 /// scopes de fichier entier ne sont pas des conteneurs.
-fn au_plus_etroit(analysis: &mut ScopeFileAnalysis) {
-    let bornes: Vec<(usize, usize)> = analysis.scopes.iter().map(|s| (s.scope_start_line, s.scope_end_line)).collect();
+///
+/// **Une classe aussi** (22 novembre 2026, ticket de recherche
+/// `2026-11-21-usages-rend-une-classe-comme-usage-de-type-d-une-fonction`) : une classe, une interface, un bloc
+/// `impl` gardaient les références du corps de leurs méthodes, si bien qu'une fonction appelée par une méthode avait
+/// la classe pour usager. Ce qui tombe dans un membre est au membre ; l'en-tête (`impl Trait for Type`, `extends`) et
+/// les champs restent à la classe. La position se compare **à l'octet** (la ligne et la colonne de la référence, les
+/// octets du nœud du membre) : un membre sur la ligne de l'en-tête ne lui prend pas ses références. Sans octets
+/// connus, la comparaison se fait par lignes, comme avant.
+fn au_plus_etroit(analysis: &mut ScopeFileAnalysis, line_starts: &[usize]) {
+    // Les bornes de chaque scope : ses lignes, et les octets de son nœud quand l'analyse les connaît.
+    let bornes: Vec<(usize, usize, Option<(usize, usize)>)> = analysis
+        .scopes
+        .iter()
+        .map(|s| (s.scope_start_line, s.scope_end_line, s.node_start_byte.zip(s.node_end_byte)))
+        .collect();
+    let octet_de = |line: usize, column: Option<usize>| -> Option<usize> {
+        column.and_then(|c| line_starts.get(line.checked_sub(1)?).map(|debut| debut + c))
+    };
     for (i, scope) in analysis.scopes.iter_mut().enumerate() {
-        let conteneur = matches!(scope.r#type, ScopeInfoType::Namespace | ScopeInfoType::Module) && !scope.name.starts_with("file_scope");
+        let conteneur = matches!(
+            scope.r#type,
+            ScopeInfoType::Namespace | ScopeInfoType::Module | ScopeInfoType::Class | ScopeInfoType::Interface
+        ) && !scope.name.starts_with("file_scope");
         if !conteneur {
             continue;
         }
-        let (debut, fin) = bornes[i];
-        let enfants: Vec<(usize, usize)> = bornes
+        let (debut, fin, octets) = bornes[i];
+        let enfants: Vec<(usize, usize, Option<(usize, usize)>)> = bornes
             .iter()
             .enumerate()
-            .filter(|(j, (a, b))| *j != i && *a >= debut && *b <= fin && (*a, *b) != (debut, fin))
+            .filter(|(j, (a, b, o))| {
+                *j != i
+                    && *a >= debut
+                    && *b <= fin
+                    && match (octets, o) {
+                        // Par les octets : un nœud strictement contenu dans celui du conteneur.
+                        (Some((cd, cf)), Some((ed, ef))) => *ed >= cd && *ef <= cf && (*ed, *ef) != (cd, cf),
+                        _ => (*a, *b) != (debut, fin),
+                    }
+            })
             .map(|(_, r)| *r)
             .collect();
         if enfants.is_empty() {
             continue;
         }
-        scope.identifier_references.retain(|r| !enfants.iter().any(|(a, b)| r.line >= *a && r.line <= *b));
+        scope.identifier_references.retain(|r| {
+            let dans_un_enfant = enfants.iter().any(|(a, b, o)| match (o, octet_de(r.line, r.column)) {
+                (Some((ed, ef)), Some(x)) => x >= *ed && x < *ef,
+                _ => r.line >= *a && r.line <= *b,
+            });
+            !dans_un_enfant
+        });
     }
 }
 

@@ -1722,59 +1722,8 @@ impl PythonScopeExtractionParser {
             }
         }
 
-        // Second pass: Aggregate type references from child methods to parent classes
-        // Collect class indices first to avoid borrow conflicts
-        let class_indices: Vec<usize> = scopes.iter().enumerate()
-            .filter(|(_, s)| s.r#type == ScopeInfoType::Class)
-            .map(|(i, _)| i)
-            .collect();
-
-        for class_idx in class_indices {
-            let class_name = scopes[class_idx].name.clone();
-            let class_file = scopes[class_idx].file_path.clone();
-
-            // Collect type references from children
-            let mut type_references: HashMap<String, (String, usize, String)> = HashMap::new();
-            for scope in scopes.iter() {
-                if scope.parent.as_deref() == Some(&class_name) && scope.file_path == class_file {
-                    for r in &scope.identifier_references {
-                        if r.kind == Some(IdentifierReferenceKind::LocalScope) {
-                            if let Some(ref target_scope) = r.target_scope {
-                                if !type_references.contains_key(&r.identifier) {
-                                    type_references.insert(r.identifier.clone(), (
-                                        target_scope.clone(),
-                                        scope.scope_start_line,
-                                        scope.signature.clone(),
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Add to the class scope
-            let class_scope = &mut scopes[class_idx];
-            for (type_name, (target_scope, line, context)) in &type_references {
-                let already_exists = class_scope.identifier_references.iter().any(|r|
-                    r.identifier == *type_name && r.kind == Some(IdentifierReferenceKind::LocalScope)
-                );
-                if !already_exists {
-                    class_scope.identifier_references.push(IdentifierReference {
-                        usage: Some(crate::scope_extraction::types::UsageKind::Type),
-                        qualifier_type: None,
-                        qualifier_deferred: None,
-                        import_origin: None,
-                        identifier: type_name.clone(),
-                        line: *line,
-                        context: Some(context.clone()),
-                        kind: Some(IdentifierReferenceKind::LocalScope),
-                        target_scope: Some(target_scope.clone()),
-                        ..Default::default()
-                    });
-                }
-            }
-        }
+        // **Nothing copied from the methods to the class** (22 November 2026): see the same place in
+        // `BaseScopeExtractionParser::attach_class_field_type_references`.
     }
 
     /// Extract base type identifier from a type string (first identifier only)
