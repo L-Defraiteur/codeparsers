@@ -192,8 +192,37 @@ pub fn finalize(analysis: &mut ScopeFileAnalysis, content: &str) {
     attach_import_origins(analysis);
     lire_les_types_differes(analysis);
     relever_les_verrous_par_appel(analysis);
+    lire_les_plages(analysis, content, &line_starts);
     au_plus_etroit(analysis, &line_starts);
     ordre_fixe(analysis);
+}
+
+/// **La plage d'octets de chaque référence, lue dans le texte du fichier** (lot 2 de l'intra-scope : les occurrences au
+/// graphe). Une référence lue sur un nœud a déjà la sienne ; une référence lue dans le texte (un import cherché mot à
+/// mot, le haut d'un fichier relevé par expression régulière) n'a que sa ligne et sa colonne. La plage se pose quand
+/// le texte du fichier, à cet octet, est exactement l'identifiant : une colonne factice (l'en-tête d'un `impl`, 0) ou
+/// recopiée d'une autre référence (la garde d'un verrou, placée sur l'appel) ne relit pas le nom, et la référence
+/// reste sans plage. Une plage qui ne relit pas son identifiant est retirée : rien n'est deviné.
+fn lire_les_plages(analysis: &mut ScopeFileAnalysis, content: &str, line_starts: &[usize]) {
+    let relit = |debut: usize, nom: &str| content.get(debut..debut + nom.len()) == Some(nom);
+    for scope in &mut analysis.scopes {
+        for r in &mut scope.identifier_references {
+            if let (Some(debut), Some(fin)) = (r.start_byte, r.end_byte) {
+                if fin == debut + r.identifier.len() && relit(debut, &r.identifier) {
+                    continue;
+                }
+            }
+            r.start_byte = None;
+            r.end_byte = None;
+            let Some(colonne) = r.column else { continue };
+            let Some(&debut_de_ligne) = r.line.checked_sub(1).and_then(|i| line_starts.get(i)) else { continue };
+            let debut = debut_de_ligne + colonne;
+            if !r.identifier.is_empty() && relit(debut, &r.identifier) {
+                r.start_byte = Some(debut);
+                r.end_byte = Some(debut + r.identifier.len());
+            }
+        }
+    }
 }
 
 /// **Une référence appartient au scope le plus étroit qui la contient.** Un
