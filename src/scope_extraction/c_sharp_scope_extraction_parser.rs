@@ -1251,13 +1251,20 @@ impl CSharpScopeExtractionParser {
         let mut cursor = param_list.walk();
         for child in param_list.children(&mut cursor) {
             if child.kind() == "parameter" {
+                // Par leurs champs (`type`, `name`) : le premier identifiant d'un paramètre est son type quand celui-ci
+                // est un nom (`Widget w`), et le lire comme le nom faisait de « Widget » un paramètre, écartait chaque
+                // `Widget` de la méthode et laissait `w` une référence (22 novembre 2026).
                 let mut cursor2 = child.walk();
-                let type_node = child.children(&mut cursor2).find(|c| {
-                    matches!(c.kind(), "predefined_type" | "identifier" | "generic_name" | "qualified_name" | "nullable_type")
+                let type_node = child.child_by_field_name("type").or_else(|| {
+                    child.children(&mut cursor2).find(|c| {
+                        matches!(c.kind(), "predefined_type" | "generic_name" | "qualified_name" | "nullable_type")
+                    })
                 });
 
                 let mut cursor2 = child.walk();
-                let name_node = child.children(&mut cursor2).find(|c| c.kind() == "identifier");
+                let name_node = child.child_by_field_name("name").or_else(|| {
+                    child.children(&mut cursor2).filter(|c| c.kind() == "identifier").last()
+                });
 
                 let actual_name = name_node
                     .map(|n| self.base.get_node_text(Some(n), content))

@@ -42,7 +42,8 @@ fn every_type_name_of_a_function_is_a_reference_with_its_range() {
             fautes.push(format!("{chemin}: no scope {fonction}"));
             continue;
         };
-        let debut = source.find(fonction).unwrap();
+        // From the start of the function's declaration: a C return type is written before the name.
+        let debut = source[..source.find(fonction).unwrap()].rfind("\n\n").unwrap();
         let attendus: Vec<usize> = source.match_indices("Widget").map(|(i, _)| i).filter(|i| *i > debut).collect();
         let mut lus: Vec<usize> = f.identifier_references.iter().filter(|r| r.identifier == "Widget").filter_map(|r| r.start_byte).collect();
         lus.sort();

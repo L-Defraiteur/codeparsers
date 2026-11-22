@@ -2561,7 +2561,31 @@ impl BaseScopeExtractionParser {
             }
         }
 
-        if kind == "identifier" || kind == "property_identifier" || kind == "field_identifier" {
+        // **Le nom d'un type est une référence** (22 novembre 2026) : en TypeScript, JavaScript, C, C++ et Go, un type
+        // écrit est un `type_identifier`, que ce parcours ne relevait pas ; le type d'un paramètre, d'un retour ou d'une
+        // locale annotée n'était une référence nulle part avec sa place. Rust et Python ont leur propre visiteur de
+        // types ; en C#, un type est un `identifier`, déjà relevé.
+        let nom_de_type = kind == "type_identifier"
+            && matches!(self.language, SupportedLanguage::Typescript | SupportedLanguage::Javascript | SupportedLanguage::C | SupportedLanguage::Cpp | SupportedLanguage::Go);
+        if nom_de_type {
+            // Une clause d'héritage (`: public Base`, `implements I`, `extends J`) se lit par son propre chemin, qui pose
+            // l'héritage : relevé ici aussi, le nom en faisait un second, et un usage de type de plus.
+            let mut ancetre = crate::scope_extraction::parents::parent_of(current);
+            for _ in 0..4 {
+                let Some(a) = ancetre else { break };
+                if matches!(a.kind(), "base_class_clause" | "implements_clause" | "extends_type_clause" | "class_heritage") {
+                    return;
+                }
+                ancetre = crate::scope_extraction::parents::parent_of(a);
+            }
+            // Le nom qu'un `typedef` C pose (`} Widget;`) le déclare, il ne l'utilise pas.
+            if crate::scope_extraction::parents::parent_of(current).is_some_and(|p| {
+                p.kind() == "type_definition" && p.child_by_field_name("declarator").is_some_and(|d| d.id() == current.id())
+            }) {
+                return;
+            }
+        }
+        if kind == "identifier" || kind == "property_identifier" || kind == "field_identifier" || nom_de_type {
             if self.is_definition_identifier(current) {
                 return;
             }
@@ -2727,6 +2751,12 @@ impl BaseScopeExtractionParser {
         // `~Foo` : le nom d'un destructeur est déclaré, pas un usage de `Foo`.
         if parent.kind() == "destructor_name" {
             return true;
+        }
+        // Le champ `type` d'une déclaration est le type qu'elle utilise, jamais un nom qu'elle déclare : en C#,
+        // `Widget x = w;` faisait de `Widget` une locale (parent `variable_declaration`), et chaque `Widget` de la
+        // méthode était écarté comme tel (22 novembre 2026).
+        if parent.child_by_field_name("type").is_some_and(|t| t.id() == node.id()) {
+            return false;
         }
         // If this node is the "name" field of its parent, it's a definition
         // EXCEPT for member access expressions — `obj.name` is a usage, not a definition

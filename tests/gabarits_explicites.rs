@@ -62,7 +62,9 @@ fn un_cast_du_langage_type_son_resultat() {
     let src = "struct Op { void run() {} };\nstruct Autre { void run() {} };\nvoid f(void* p) {\n    static_cast<Op*>(p)->run();\n}\n";
     let rels = consumes(&[("c.cpp", src)], false);
     let vers: Vec<&String> = rels.iter().filter(|(de, _, _)| de == "c.cpp:f").map(|(_, v, _)| v).collect();
-    assert_eq!(vers.len(), 1, "un seul run, celui de Op : {rels:?}");
+    assert_eq!(vers.iter().filter(|v| v.ends_with(":run")).count(), 1, "un seul run, celui de Op : {rels:?}");
+    // Le type écrit dans le cast est un usage de `Op` (22 novembre 2026 : un nom de type est une référence).
+    assert!(vers.iter().any(|v| *v == "c.cpp:Op"), "f utilise le type Op : {rels:?}");
 }
 
 #[test]
