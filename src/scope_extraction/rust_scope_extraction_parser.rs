@@ -485,16 +485,33 @@ impl RustScopeExtractionParser {
             // du scope que la relation cherche (le chemin reste dans `context` et la signature).
             let sans_arguments = tn.split('<').next().unwrap_or(tn).trim();
             let base_trait_name = sans_arguments.rsplit("::").next().unwrap_or(sans_arguments).trim().to_string();
+            // **Sa place, lue sur son nœud** (22 novembre 2026) : le dernier `type_identifier` du champ `trait` qui porte
+            // ce nom. Un trait mot vide (`Display`, `Default`…) n'est relevé que par cette référence-ci : sans elle, il
+            // restait à la colonne 0, sans plage.
+            let noeud_du_trait = node.child_by_field_name("trait").and_then(|tr| {
+                let mut pile = vec![tr];
+                let mut dernier = None;
+                while let Some(n) = pile.pop() {
+                    if n.kind() == "type_identifier" && self.base.get_node_text(Some(n), content) == base_trait_name {
+                        if dernier.is_none_or(|d: SyntaxNode| n.start_byte() > d.start_byte()) {
+                            dernier = Some(n);
+                        }
+                    }
+                    let mut c = n.walk();
+                    pile.extend(n.children(&mut c));
+                }
+                dernier
+            });
             identifier_references.push(IdentifierReference {
                 usage: Some(crate::scope_extraction::types::UsageKind::Inheritance),
                 qualifier_type: None,
                 qualifier_deferred: None,
                 import_origin: None,
                 identifier: base_trait_name,
-                line: start_line,
-                column: Some(0),
-                start_byte: None,
-                end_byte: None,
+                line: noeud_du_trait.map_or(start_line, |n| n.start_position().row + 1),
+                column: Some(noeud_du_trait.map_or(0, |n| n.start_position().column)),
+                start_byte: noeud_du_trait.map(|n| n.start_byte()),
+                end_byte: noeud_du_trait.map(|n| n.end_byte()),
                 context: Some(format!("impl {} for {}", tn, target_type_name.as_deref().unwrap_or(""))),
                 kind: Some(IdentifierReferenceKind::Unknown),
                 ..Default::default()
