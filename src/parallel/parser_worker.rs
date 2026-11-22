@@ -309,6 +309,8 @@ fn relever_les_verrous_par_appel(analysis: &mut ScopeFileAnalysis) {
                     identifier: champ.to_string(),
                     line: r.line,
                     column: r.column,
+                    start_byte: None,
+                    end_byte: None,
                     context: r.context.clone(),
                     qualifier: Some(proprietaire.to_string()),
                     usage: Some(genre),

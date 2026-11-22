@@ -493,6 +493,8 @@ impl RustScopeExtractionParser {
                 identifier: base_trait_name,
                 line: start_line,
                 column: Some(0),
+                start_byte: None,
+                end_byte: None,
                 context: Some(format!("impl {} for {}", tn, target_type_name.as_deref().unwrap_or(""))),
                 kind: Some(IdentifierReferenceKind::Unknown),
                 ..Default::default()
@@ -1478,6 +1480,8 @@ fn visit_rust_type_refs(
                     identifier,
                     line: current.start_position().row + 1,
                     column: Some(current.start_position().column),
+                    start_byte: None,
+                    end_byte: None,
                     context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, current.start_byte()),
                     qualifier,
                     kind: Some(IdentifierReferenceKind::Unknown),
@@ -1513,6 +1517,8 @@ fn visit_rust_type_refs(
                         identifier,
                         line: last_id.start_position().row + 1,
                         column: Some(last_id.start_position().column),
+                        start_byte: None,
+                        end_byte: None,
                         context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, last_id.start_byte()),
                         kind: Some(IdentifierReferenceKind::Unknown),
                         ..Default::default()

@@ -82,6 +82,34 @@ pub enum UsageKind {
 pub struct UsageSite {
     pub usage: UsageKind,
     pub line: Option<usize>,
+    /// La colonne du site, en octets depuis le début de sa ligne (0 = premier octet), quand l'analyseur la connaît.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<usize>,
+    /// **La plage d'octets du site dans le fichier** (`start_byte` inclus, `end_byte` exclu), celle du nœud de
+    /// l'identifiant : `None` quand le site ne vient pas d'un nœud (un type lu dans le texte d'une signature).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_byte: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_byte: Option<usize>,
+}
+
+impl UsageSite {
+    /// Un site connu par sa seule ligne (un import trouvé dans le texte, l'en-tête d'une classe) : ni colonne ni octets.
+    pub fn at_line(usage: UsageKind, line: Option<usize>) -> Self {
+        Self { usage, line, column: None, start_byte: None, end_byte: None }
+    }
+
+    /// **Le site d'une référence**, tel que l'analyseur l'a lu : sa ligne, sa colonne et sa plage d'octets, quand elle
+    /// les a. Le genre est celui de la référence (`Other` quand elle n'en dit pas).
+    pub fn of_reference(r: &IdentifierReference) -> Self {
+        Self {
+            usage: r.usage.clone().unwrap_or(UsageKind::Other),
+            line: Some(r.line),
+            column: r.column,
+            start_byte: r.start_byte,
+            end_byte: r.end_byte,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -89,6 +117,13 @@ pub struct IdentifierReference {
     pub identifier: String,
     pub line: usize,
     pub column: Option<usize>,
+    /// **La plage d'octets de l'identifiant dans le fichier** (`start_byte` inclus, `end_byte` exclu), lue sur son
+    /// nœud : `content[start_byte..end_byte]` est l'identifiant tel qu'écrit. `None` quand la référence ne vient
+    /// pas d'un nœud (un type lu dans le texte d'une signature) : rien n'est inventé.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_byte: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_byte: Option<usize>,
     pub context: Option<String>,
     pub qualifier: Option<String>,
     pub kind: Option<IdentifierReferenceKind>,

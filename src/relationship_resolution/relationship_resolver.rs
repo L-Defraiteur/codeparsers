@@ -1197,7 +1197,7 @@ impl RelationshipResolver {
                 to_type: scope_type_str(&scope.r#type).to_string(),
                 metadata: Some(RelationshipMetadata {
                     decorator_args: args.clone(),
-                    sites: vec![UsageSite { usage: UsageKind::Call, line: *line }],
+                    sites: vec![UsageSite::at_line(UsageKind::Call, *line)],
                     ..Default::default()
                 }),
             });
@@ -1253,7 +1253,7 @@ impl RelationshipResolver {
                 continue;
             }
 
-            let site = UsageSite { usage: UsageKind::Import, line: imp.line };
+            let site = UsageSite::at_line(UsageKind::Import, imp.line);
             if let Some(&i) = relation_of_library.get(&imp.source) {
                 if let Some(m) = relationships[i].metadata.as_mut() {
                     if !m.sites.contains(&site) {
@@ -1423,7 +1423,7 @@ impl RelationshipResolver {
                         from_type: format!("{:?}", scope.r#type),
                         to_type: target.r#type.clone(),
                         metadata: Some(RelationshipMetadata {
-                            sites: vec![UsageSite { usage: UsageKind::Inheritance, line: Some(scope.signature_start_line) }],
+                            sites: vec![UsageSite::at_line(UsageKind::Inheritance, Some(scope.signature_start_line))],
                             ..Default::default()
                         }),
                     });
@@ -1752,7 +1752,7 @@ pub fn detect_relationship_type_by_name(
 
 /// Le site d'une référence : son genre (lu à l'extraction) et sa ligne.
 fn site_of(r: &IdentifierReference) -> UsageSite {
-    UsageSite { usage: r.usage.clone().unwrap_or(UsageKind::Other), line: Some(r.line) }
+    UsageSite::of_reference(r)
 }
 
 /// [`site_of`], sachant la cible : **un nom nu relevé « other » qui désigne

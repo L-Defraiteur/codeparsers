@@ -1184,6 +1184,8 @@ impl PythonScopeExtractionParser {
                         identifier,
                         line: node.start_position().row + 1,
                         column: Some(node.start_position().column),
+                        start_byte: None,
+                        end_byte: None,
                         context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, node.start_byte()),
                         qualifier: None,
                         ..Default::default()
@@ -1219,6 +1221,8 @@ impl PythonScopeExtractionParser {
                         identifier: name,
                         line: function_node.start_position().row + 1,
                         column: Some(function_node.start_position().column),
+                        start_byte: None,
+                        end_byte: None,
                         context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, function_node.start_byte()),
                         qualifier: None,
                         ..Default::default()
@@ -1265,6 +1269,8 @@ impl PythonScopeExtractionParser {
                         identifier: attribute,
                         line: attr_node.start_position().row + 1,
                         column: Some(attr_node.start_position().column),
+                        start_byte: None,
+                        end_byte: None,
                         context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, attr_node.start_byte()),
                         qualifier,
                         ..Default::default()
@@ -1537,6 +1543,8 @@ impl PythonScopeExtractionParser {
                             identifier: bound_type.clone(),
                             line: r.line,
                             column: r.column,
+                            start_byte: None,
+                            end_byte: None,
                             context: r.context.clone(),
                             kind: Some(IdentifierReferenceKind::Import),
                             source: Some(bound_import.source.clone()),
