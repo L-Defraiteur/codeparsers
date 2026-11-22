@@ -1167,7 +1167,12 @@ impl PythonScopeExtractionParser {
         let attribut = crate::scope_extraction::parents::parent_of(node).is_some_and(|p| {
             p.kind() == "attribute" && p.child_by_field_name("attribute").is_some_and(|a| a.id() == node.id())
         });
-        if node.kind() == "identifier" && !attribut && !self.is_definition_identifier(node) {
+        // Le nom appelé (`helper` dans `helper()`), `handle_call_expression` le relève comme appel : relevé une seconde
+        // fois ici, chaque appel faisait deux références au même octet (vu par les plages, 22 novembre 2026).
+        let appele = crate::scope_extraction::parents::parent_of(node).is_some_and(|p| {
+            p.kind() == "call" && p.child_by_field_name("function").is_some_and(|f| f.id() == node.id())
+        });
+        if node.kind() == "identifier" && !attribut && !appele && !self.is_definition_identifier(node) {
             let identifier = self.get_node_text(Some(node), content);
             if !identifier.is_empty()
                 && !exclude.contains(&identifier)
@@ -1184,8 +1189,8 @@ impl PythonScopeExtractionParser {
                         identifier,
                         line: node.start_position().row + 1,
                         column: Some(node.start_position().column),
-                        start_byte: None,
-                        end_byte: None,
+                        start_byte: Some(node.start_byte()),
+                        end_byte: Some(node.end_byte()),
                         context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, node.start_byte()),
                         qualifier: None,
                         ..Default::default()
@@ -1221,8 +1226,8 @@ impl PythonScopeExtractionParser {
                         identifier: name,
                         line: function_node.start_position().row + 1,
                         column: Some(function_node.start_position().column),
-                        start_byte: None,
-                        end_byte: None,
+                        start_byte: Some(function_node.start_byte()),
+                        end_byte: Some(function_node.end_byte()),
                         context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, function_node.start_byte()),
                         qualifier: None,
                         ..Default::default()
@@ -1269,8 +1274,8 @@ impl PythonScopeExtractionParser {
                         identifier: attribute,
                         line: attr_node.start_position().row + 1,
                         column: Some(attr_node.start_position().column),
-                        start_byte: None,
-                        end_byte: None,
+                        start_byte: Some(attr_node.start_byte()),
+                        end_byte: Some(attr_node.end_byte()),
                         context: crate::scope_extraction::base_scope_extraction_parser::line_at_byte(content, attr_node.start_byte()),
                         qualifier,
                         ..Default::default()
