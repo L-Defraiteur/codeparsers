@@ -32,7 +32,12 @@ fn un_parametre_n_est_pas_une_reference_du_bloc_impl() {
     let s = scopes(SRC);
     let refs: Vec<String> = s.iter().filter(|x| x.name == "B").flat_map(|x| x.identifier_references.iter().map(|r| r.identifier.clone())).collect();
     assert!(!refs.contains(&"f".to_string()), "le paramètre f n'est pas une référence : {refs:?}");
-    assert!(refs.contains(&"Formatter".to_string()), "son type en reste une : {refs:?}");
+    // Son type en reste une, **de la méthode qui l'écrit** (22 novembre 2026) : une référence appartient au scope qui
+    // la contient, et le bloc `impl` ne garde plus celles du corps de ses méthodes ; il garde son en-tête.
+    let fmt: Vec<String> = s.iter().filter(|x| x.name == "fmt").flat_map(|x| x.identifier_references.iter().map(|r| r.identifier.clone())).collect();
+    assert!(!fmt.contains(&"f".to_string()), "ni de la méthode : {fmt:?}");
+    assert!(fmt.contains(&"Formatter".to_string()), "son type en reste une, de la méthode : {fmt:?}");
+    assert!(!refs.contains(&"Formatter".to_string()) && refs.contains(&"Display".to_string()), "le bloc garde son en-tête, pas le corps de sa méthode : {refs:?}");
 }
 
 #[test]
