@@ -8,6 +8,8 @@ extensions = ["cpp", "cc", "cxx", "hpp", "hh", "hxx"]
 
 [builtin]
 source = "libstdc++ de GCC 16.2.1 (117 en-têtes) et C23 §7.1.2 (31 en-têtes)"
+# L'espace de noms de la bibliothèque standard (ISO/IEC 14882, [namespace.std]) : `std::X` en vient.
+espaces_de_noms = ["std"]
 noms = [
     "algorithm", "any", "array", "atomic", "barrier", "bit", "bitset", "cassert", "ccomplex",
     "cctype", "cerrno", "cfenv", "cfloat", "charconv", "chrono", "cinttypes", "ciso646", "climits",

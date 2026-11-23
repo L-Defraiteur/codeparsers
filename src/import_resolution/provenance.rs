@@ -38,6 +38,13 @@ pub fn est_builtin(fichier: &str, source: &str) -> bool {
     est_builtin_selon(&Regles::partagees(None), fichier, source)
 }
 
+/// **La racine d'un nom qualifié est-elle un espace de noms de la bibliothèque standard ?** (`std` dans
+/// `std::to_string`, en C++), d'après les règles de la langue du fichier (`[builtin] espaces_de_noms`). Le
+/// fichier seul en décide, pas ce qui est analysé avec lui.
+pub fn est_espace_standard(fichier: &str, racine: &str) -> bool {
+    Regles::partagees(None).de_fichier(fichier).is_some_and(|r| r.builtin.espaces_de_noms.iter().any(|e| e == racine.trim()))
+}
+
 /// [`est_builtin`] selon des règles chargées (`import_rules_dir`) : la langue du fichier passe par son
 /// fichier de règles (`data/imports/<langue>.toml`).
 pub fn est_builtin_selon(regles: &Regles, fichier: &str, source: &str) -> bool {

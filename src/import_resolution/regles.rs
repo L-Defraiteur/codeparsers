@@ -59,6 +59,11 @@ pub struct Builtin {
     /// Un nom de la liste couvre ses enfants (C# : `System.Text` couvre `System.Text.Json`).
     #[serde(default)]
     pub par_prefixe: bool,
+    /// **Les espaces de noms de la bibliothèque standard** (C++ : `std`) : un nom qualifié par l'un d'eux
+    /// (`std::to_string`) appartient à la bibliothèque standard, quel que soit l'en-tête qui l'apporte. Un fait du
+    /// langage, lu par fichier : il ne dépend d'aucun autre fichier analysé avec lui (23 novembre 2026).
+    #[serde(default)]
+    pub espaces_de_noms: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, serde::Deserialize)]
